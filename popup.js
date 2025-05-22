@@ -55,7 +55,7 @@ class PopupController {
 
     showConsentRequired() {
         // Replace popup content with consent notice
-        document.body.innerHTML = `
+        const consentHTML = `
         <div style="width: 350px; padding: 20px; text-align: center; font-family: Arial, sans-serif;">
           <div style="background: linear-gradient(135deg, #0077b5, #005885); color: white; padding: 20px; margin: -20px -20px 20px -20px; border-radius: 8px 8px 0 0;">
             <h1 style="margin: 0; font-size: 18px;">🔒 Privacy Consent Required</h1>
@@ -111,14 +111,24 @@ class PopupController {
         </div>
       `;
 
-        // Add event listeners for consent buttons
-        document.getElementById('showConsentDialog').addEventListener('click', () => {
-            this.openConsentDialog();
-        });
+        // Clear existing content and set new HTML
+        document.body.innerHTML = consentHTML;
 
-        document.getElementById('closePopup').addEventListener('click', () => {
-            window.close();
-        });
+        // Add event listeners AFTER setting innerHTML to avoid CSP issues
+        const showConsentBtn = document.getElementById('showConsentDialog');
+        const closeBtn = document.getElementById('closePopup');
+
+        if (showConsentBtn) {
+            showConsentBtn.addEventListener('click', () => {
+                this.openConsentDialog();
+            });
+        }
+
+        if (closeBtn) {
+            closeBtn.addEventListener('click', () => {
+                window.close();
+            });
+        }
     }
 
     openConsentDialog() {

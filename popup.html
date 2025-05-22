@@ -1,306 +1,315 @@
 <!DOCTYPE html>
 <html lang="en">
+
 <head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>LinkedIn Post Saver</title>
-  <link rel="stylesheet" href="popup.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>LinkedIn Post Saver</title>
+    <link rel="stylesheet" href="popup.css">
 </head>
+
 <body>
-  <div class="popup-container">
-    <!-- Header -->
-    <header class="popup-header">
-      <div class="header-content">
-        <h1 class="header-title">LinkedIn Post Saver</h1>
-      </div>
-      <div class="header-stats">
-        <span id="totalPosts" class="stat-badge">0 posts</span>
-      </div>
-    </header>
+    <div class="popup-container">
+        <!-- Header -->
+        <header class="popup-header">
+            <div class="header-content">
+                <img src="icons/icon32.png" alt="LinkedIn Post Saver" class="header-icon">
+                <h1 class="header-title">LinkedIn Post Saver</h1>
+            </div>
+            <div class="header-stats">
+                <span id="totalPosts" class="stat-badge">0 posts</span>
+            </div>
+        </header>
 
-    <!-- Navigation Tabs -->
-    <nav class="nav-tabs">
-      <button class="nav-tab active" data-tab="saved-posts">
-        <span class="tab-icon">📝</span>
-        Saved Posts
-      </button>
-      <button class="nav-tab" data-tab="search">
-        <span class="tab-icon">🔍</span>
-        Search
-      </button>
-      <button class="nav-tab" data-tab="stats">
-        <span class="tab-icon">📊</span>
-        Stats
-      </button>
-      <button class="nav-tab" data-tab="settings">
-        <span class="tab-icon">⚙️</span>
-        Settings
-      </button>
-    </nav>
-
-    <!-- Main Content Area -->
-    <main class="popup-content">
-      
-      <!-- Saved Posts Tab -->
-      <div id="saved-posts" class="tab-content active">
-        <div class="content-header">
-          <h2>Recently Saved Posts</h2>
-          <div class="content-actions">
-            <button id="refreshPosts" class="btn btn-secondary">
-              <span class="btn-icon">🔄</span>
-              Refresh
+        <!-- Navigation Tabs -->
+        <nav class="nav-tabs">
+            <button class="nav-tab active" data-tab="saved-posts">
+                <span class="tab-icon">📝</span>
+                Saved Posts
             </button>
-            <button id="exportPosts" class="btn btn-secondary">
-              <span class="btn-icon">📤</span>
-              Export
+            <button class="nav-tab" data-tab="search">
+                <span class="tab-icon">🔍</span>
+                Search
             </button>
-          </div>
-        </div>
-        
-        <div class="filters">
-          <select id="authorFilter" class="filter-select">
-            <option value="">All authors</option>
-          </select>
-          <select id="dateFilter" class="filter-select">
-            <option value="">All dates</option>
-            <option value="today">Today</option>
-            <option value="week">This week</option>
-            <option value="month">This month</option>
-          </select>
-        </div>
-
-        <div id="postsContainer" class="posts-container">
-          <div class="loading" id="postsLoading">
-            <div class="loading-spinner"></div>
-            <p>Loading saved posts...</p>
-          </div>
-        </div>
-
-        <div class="pagination">
-          <button id="prevPage" class="btn btn-secondary" disabled>Previous</button>
-          <span id="pageInfo">Page 1</span>
-          <button id="nextPage" class="btn btn-secondary" disabled>Next</button>
-        </div>
-      </div>
-
-      <!-- Search Tab -->
-      <div id="search" class="tab-content">
-        <div class="content-header">
-          <h2>Search Posts</h2>
-        </div>
-        
-        <div class="search-form">
-          <div class="search-input-group">
-            <input type="text" id="searchInput" placeholder="Search posts by title, content, or author..." class="search-input">
-            <button id="searchButton" class="btn btn-primary">
-              <span class="btn-icon">🔍</span>
-              Search
+            <button class="nav-tab" data-tab="stats">
+                <span class="tab-icon">📊</span>
+                Stats
             </button>
-          </div>
-          
-          <div class="search-filters">
-            <label class="filter-label">
-              <input type="checkbox" id="searchInTitle"> Search in titles only
-            </label>
-            <label class="filter-label">
-              <input type="checkbox" id="searchWithMedia"> Posts with media only
-            </label>
-          </div>
-        </div>
-
-        <div id="searchResults" class="posts-container">
-          <div class="search-placeholder">
-            <p>🔍 Enter a search term to find your saved posts</p>
-          </div>
-        </div>
-      </div>
-
-      <!-- Stats Tab -->
-      <div id="stats" class="tab-content">
-        <div class="content-header">
-          <h2>Statistics</h2>
-          <button id="refreshStats" class="btn btn-secondary">
-            <span class="btn-icon">🔄</span>
-            Refresh
-          </button>
-        </div>
-
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-value" id="statTotalPosts">0</div>
-            <div class="stat-label">Total Posts</div>
-          </div>
-          
-          <div class="stat-card">
-            <div class="stat-value" id="statPostsToday">0</div>
-            <div class="stat-label">Today</div>
-          </div>
-          
-          <div class="stat-card">
-            <div class="stat-value" id="statPostsWeek">0</div>
-            <div class="stat-label">This Week</div>
-          </div>
-          
-          <div class="stat-card">
-            <div class="stat-value" id="statPostsMonth">0</div>
-            <div class="stat-label">This Month</div>
-          </div>
-          
-          <div class="stat-card">
-            <div class="stat-value" id="statWithMedia">0</div>
-            <div class="stat-label">With Media</div>
-          </div>
-          
-          <div class="stat-card">
-            <div class="stat-value" id="statAuthors">0</div>
-            <div class="stat-label">Unique Authors</div>
-          </div>
-        </div>
-
-        <div class="storage-info">
-          <h3>Storage Information</h3>
-          <div class="storage-details">
-            <div class="storage-item">
-              <span class="storage-label">Storage Used:</span>
-              <span class="storage-value" id="storageUsed">0 KB</span>
-            </div>
-            <div class="storage-item">
-              <span class="storage-label">Oldest Post:</span>
-              <span class="storage-value" id="oldestPost">-</span>
-            </div>
-            <div class="storage-item">
-              <span class="storage-label">Newest Post:</span>
-              <span class="storage-value" id="newestPost">-</span>
-            </div>
-          </div>
-        </div>
-
-        <div class="actions-section">
-          <h3>Actions</h3>
-          <div class="action-buttons">
-            <button id="cleanupOldPosts" class="btn btn-warning">
-              <span class="btn-icon">🧹</span>
-              Cleanup Old Posts
+            <button class="nav-tab" data-tab="settings">
+                <span class="tab-icon">⚙️</span>
+                Settings
             </button>
-            <button id="exportAllPosts" class="btn btn-secondary">
-              <span class="btn-icon">📤</span>
-              Export All Posts
-            </button>
-          </div>
-        </div>
-      </div>
+        </nav>
 
-      <!-- Settings Tab -->
-      <div id="settings" class="tab-content">
-        <div class="content-header">
-          <h2>Settings</h2>
-          <button id="saveSettings" class="btn btn-primary">
-            <span class="btn-icon">💾</span>
-            Save Settings
-          </button>
-        </div>
+        <!-- Main Content Area -->
+        <main class="popup-content">
 
-        <div class="settings-sections">
-          <div class="settings-section">
-            <h3>Storage Settings</h3>
-            
-            <div class="setting-item">
-              <label for="maxPosts" class="setting-label">Maximum Posts to Store:</label>
-              <input type="number" id="maxPosts" min="100" max="10000" step="100" value="1000" class="setting-input">
-              <span class="setting-description">Older posts will be automatically removed when this limit is reached</span>
+            <!-- Saved Posts Tab -->
+            <div id="saved-posts" class="tab-content active">
+                <div class="content-header">
+                    <h2>Recently Saved Posts</h2>
+                    <div class="content-actions">
+                        <button id="refreshPosts" class="btn btn-secondary">
+                            <span class="btn-icon">🔄</span>
+                            Refresh
+                        </button>
+                        <button id="exportPosts" class="btn btn-secondary">
+                            <span class="btn-icon">📤</span>
+                            Export
+                        </button>
+                    </div>
+                </div>
+
+                <div class="filters">
+                    <select id="authorFilter" class="filter-select">
+                        <option value="">All authors</option>
+                    </select>
+                    <select id="dateFilter" class="filter-select">
+                        <option value="">All dates</option>
+                        <option value="today">Today</option>
+                        <option value="week">This week</option>
+                        <option value="month">This month</option>
+                    </select>
+                </div>
+
+                <div id="postsContainer" class="posts-container">
+                    <div class="loading" id="postsLoading">
+                        <div class="loading-spinner"></div>
+                        <p>Loading saved posts...</p>
+                    </div>
+                </div>
+
+                <div class="pagination">
+                    <button id="prevPage" class="btn btn-secondary" disabled>Previous</button>
+                    <span id="pageInfo">Page 1</span>
+                    <button id="nextPage" class="btn btn-secondary" disabled>Next</button>
+                </div>
             </div>
 
-            <div class="setting-item">
-              <label class="setting-label">
-                <input type="checkbox" id="autoCleanup" checked> Enable Auto Cleanup
-              </label>
-              <span class="setting-description">Automatically remove posts older than specified days</span>
+            <!-- Search Tab -->
+            <div id="search" class="tab-content">
+                <div class="content-header">
+                    <h2>Search Posts</h2>
+                </div>
+
+                <div class="search-form">
+                    <div class="search-input-group">
+                        <input type="text" id="searchInput" placeholder="Search posts by title, content, or author..."
+                            class="search-input">
+                        <button id="searchButton" class="btn btn-primary">
+                            <span class="btn-icon">🔍</span>
+                            Search
+                        </button>
+                    </div>
+
+                    <div class="search-filters">
+                        <label class="filter-label">
+                            <input type="checkbox" id="searchInTitle"> Search in titles only
+                        </label>
+                        <label class="filter-label">
+                            <input type="checkbox" id="searchWithMedia"> Posts with media only
+                        </label>
+                    </div>
+                </div>
+
+                <div id="searchResults" class="posts-container">
+                    <div class="search-placeholder">
+                        <p>🔍 Enter a search term to find your saved posts</p>
+                    </div>
+                </div>
             </div>
 
-            <div class="setting-item">
-              <label for="cleanupDays" class="setting-label">Cleanup After (days):</label>
-              <input type="number" id="cleanupDays" min="7" max="365" value="30" class="setting-input">
+            <!-- Stats Tab -->
+            <div id="stats" class="tab-content">
+                <div class="content-header">
+                    <h2>Statistics</h2>
+                    <button id="refreshStats" class="btn btn-secondary">
+                        <span class="btn-icon">🔄</span>
+                        Refresh
+                    </button>
+                </div>
+
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="statTotalPosts">0</div>
+                        <div class="stat-label">Total Posts</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-value" id="statPostsToday">0</div>
+                        <div class="stat-label">Today</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-value" id="statPostsWeek">0</div>
+                        <div class="stat-label">This Week</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-value" id="statPostsMonth">0</div>
+                        <div class="stat-label">This Month</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-value" id="statWithMedia">0</div>
+                        <div class="stat-label">With Media</div>
+                    </div>
+
+                    <div class="stat-card">
+                        <div class="stat-value" id="statAuthors">0</div>
+                        <div class="stat-label">Unique Authors</div>
+                    </div>
+                </div>
+
+                <div class="storage-info">
+                    <h3>Storage Information</h3>
+                    <div class="storage-details">
+                        <div class="storage-item">
+                            <span class="storage-label">Storage Used:</span>
+                            <span class="storage-value" id="storageUsed">0 KB</span>
+                        </div>
+                        <div class="storage-item">
+                            <span class="storage-label">Oldest Post:</span>
+                            <span class="storage-value" id="oldestPost">-</span>
+                        </div>
+                        <div class="storage-item">
+                            <span class="storage-label">Newest Post:</span>
+                            <span class="storage-value" id="newestPost">-</span>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="actions-section">
+                    <h3>Actions</h3>
+                    <div class="action-buttons">
+                        <button id="cleanupOldPosts" class="btn btn-warning">
+                            <span class="btn-icon">🧹</span>
+                            Cleanup Old Posts
+                        </button>
+                        <button id="exportAllPosts" class="btn btn-secondary">
+                            <span class="btn-icon">📤</span>
+                            Export All Posts
+                        </button>
+                    </div>
+                </div>
             </div>
-          </div>
 
-          <div class="settings-section">
-            <h3>Content Settings</h3>
-            
-            <div class="setting-item">
-              <label class="setting-label">
-                <input type="checkbox" id="saveImages" checked> Save Images
-              </label>
-              <span class="setting-description">Include images in saved posts</span>
+            <!-- Settings Tab -->
+            <div id="settings" class="tab-content">
+                <div class="content-header">
+                    <h2>Settings</h2>
+                    <button id="saveSettings" class="btn btn-primary">
+                        <span class="btn-icon">💾</span>
+                        Save Settings
+                    </button>
+                </div>
+
+                <div class="settings-sections">
+                    <div class="settings-section">
+                        <h3>Storage Settings</h3>
+
+                        <div class="setting-item">
+                            <label for="maxPosts" class="setting-label">Maximum Posts to Store:</label>
+                            <input type="number" id="maxPosts" min="100" max="10000" step="100" value="1000"
+                                class="setting-input">
+                            <span class="setting-description">Older posts will be automatically removed when this limit
+                                is reached</span>
+                        </div>
+
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <input type="checkbox" id="autoCleanup" checked> Enable Auto Cleanup
+                            </label>
+                            <span class="setting-description">Automatically remove posts older than specified
+                                days</span>
+                        </div>
+
+                        <div class="setting-item">
+                            <label for="cleanupDays" class="setting-label">Cleanup After (days):</label>
+                            <input type="number" id="cleanupDays" min="7" max="365" value="30" class="setting-input">
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Content Settings</h3>
+
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <input type="checkbox" id="saveImages" checked> Save Images
+                            </label>
+                            <span class="setting-description">Include images in saved posts</span>
+                        </div>
+
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <input type="checkbox" id="saveVideos"> Save Videos
+                            </label>
+                            <span class="setting-description">Include videos in saved posts (may use more
+                                storage)</span>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Notifications</h3>
+
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <input type="checkbox" id="enableNotifications" checked> Enable Notifications
+                            </label>
+                            <span class="setting-description">Show notifications when posts are saved</span>
+                        </div>
+                    </div>
+
+                    <div class="settings-section">
+                        <h3>Data Management</h3>
+
+                        <div class="setting-item">
+                            <button id="importPosts" class="btn btn-secondary">
+                                <span class="btn-icon">📥</span>
+                                Import Posts
+                            </button>
+                            <input type="file" id="importFile" accept=".json" class="hidden-file-input">
+                            <span class="setting-description">Import posts from a previously exported file</span>
+                        </div>
+
+                        <div class="setting-item">
+                            <button id="clearAllData" class="btn btn-danger">
+                                <span class="btn-icon">🗑️</span>
+                                Clear All Data
+                            </button>
+                            <span class="setting-description">⚠️ This will permanently delete all saved posts</span>
+                        </div>
+                    </div>
+                </div>
             </div>
 
-            <div class="setting-item">
-              <label class="setting-label">
-                <input type="checkbox" id="saveVideos"> Save Videos
-              </label>
-              <span class="setting-description">Include videos in saved posts (may use more storage)</span>
+        </main>
+
+        <!-- Footer -->
+        <footer class="popup-footer">
+            <div class="footer-content">
+                <span class="footer-text">LinkedIn Post Saver v1.0</span>
+                <a href="#" id="openLinkedIn" class="footer-link">Open LinkedIn</a>
             </div>
-          </div>
+        </footer>
 
-          <div class="settings-section">
-            <h3>Notifications</h3>
-            
-            <div class="setting-item">
-              <label class="setting-label">
-                <input type="checkbox" id="enableNotifications" checked> Enable Notifications
-              </label>
-              <span class="setting-description">Show notifications when posts are saved</span>
-            </div>
-          </div>
-
-          <div class="settings-section">
-            <h3>Data Management</h3>
-            
-            <div class="setting-item">
-              <button id="importPosts" class="btn btn-secondary">
-                <span class="btn-icon">📥</span>
-                Import Posts
-              </button>
-              <input type="file" id="importFile" accept=".json" style="display: none;">
-              <span class="setting-description">Import posts from a previously exported file</span>
-            </div>
-
-            <div class="setting-item">
-              <button id="clearAllData" class="btn btn-danger">
-                <span class="btn-icon">🗑️</span>
-                Clear All Data
-              </button>
-              <span class="setting-description">⚠️ This will permanently delete all saved posts</span>
-            </div>
-          </div>
-        </div>
-      </div>
-
-    </main>
-
-    <!-- Footer -->
-    <footer class="popup-footer">
-      <div class="footer-content">
-        <span class="footer-text">LinkedIn Post Saver v1.0</span>
-        <a href="#" id="openLinkedIn" class="footer-link">Open LinkedIn</a>
-      </div>
-    </footer>
-
-  </div>
-
-  <!-- Loading Overlay -->
-  <div id="loadingOverlay" class="loading-overlay hidden">
-    <div class="loading-content">
-      <div class="loading-spinner"></div>
-      <p id="loadingText">Loading...</p>
     </div>
-  </div>
 
-  <!-- Notification Toast -->
-  <div id="notificationToast" class="notification-toast hidden">
-    <span id="notificationText"></span>
-    <button id="closeNotification" class="close-notification">×</button>
-  </div>
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay hidden">
+        <div class="loading-content">
+            <div class="loading-spinner"></div>
+            <p id="loadingText">Loading...</p>
+        </div>
+    </div>
 
-  <script src="popup.js"></script>
+    <!-- Notification Toast -->
+    <div id="notificationToast" class="notification-toast hidden">
+        <span id="notificationText"></span>
+        <button id="closeNotification" class="close-notification">×</button>
+    </div>
+
+    <script src="popup.js"></script>
 </body>
+
 </html>

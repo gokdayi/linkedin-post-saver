@@ -32,6 +32,10 @@
       "default_popup": "popup.html",
       "default_title": "LinkedIn Post Saver"
     },
+
+    "content_security_policy": {
+        "extension_pages": "script-src 'self'; object-src 'self'; style-src 'self' 'unsafe-inline';"
+    },
     
     "web_accessible_resources": [
     {

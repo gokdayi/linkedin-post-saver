@@ -16,7 +16,8 @@ body {
 
 .popup-container {
     width: 450px;
-    height: 600px;
+    height: 650px;
+    /* Increased height to accommodate compliance section */
     display: flex;
     flex-direction: column;
     background: white;
@@ -116,7 +117,8 @@ body {
     display: none;
     height: 100%;
     overflow-y: auto;
-    padding: 16px 20px;
+    padding: 16px 20px 60px 20px;
+    /* Added bottom padding for footer clearance */
 }
 
 .tab-content.active {
@@ -496,22 +498,28 @@ body {
 .settings-sections {
     display: flex;
     flex-direction: column;
-    gap: 20px;
+    gap: 24px;
+    /* Increased gap between sections */
+    margin-bottom: 20px;
+    /* Extra space at bottom */
 }
 
 .settings-section {
     background: white;
     border: 1px solid #e0e0e0;
     border-radius: 8px;
-    padding: 16px;
+    padding: 20px;
+    /* Increased padding */
 }
 
 .settings-section h3 {
-    font-size: 14px;
+    font-size: 16px;
+    /* Increased font size */
     font-weight: 600;
     margin-bottom: 16px;
     color: #333;
-    border-bottom: 1px solid #f0f0f0;
+    border-bottom: 2px solid #0077b5;
+    /* Made border more prominent */
     padding-bottom: 8px;
 }
 
@@ -559,11 +567,12 @@ body {
 }
 
 .compliance-notice-card {
-    background: white;
-    border: 1px solid #e0e0e0;
+    background: #f0f8ff;
+    border: 2px solid #0077b5;
     border-radius: 8px;
     padding: 16px;
     margin-bottom: 16px;
+    box-shadow: 0 2px 8px rgba(0, 119, 181, 0.1);
 }
 
 .compliance-status {
@@ -636,6 +645,12 @@ body {
     flex-wrap: wrap;
 }
 
+.compliance-buttons {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+}
+
 .compliance-link {
     color: #0077b5;
     text-decoration: none;
@@ -648,6 +663,150 @@ body {
 
 .compliance-link:hover {
     text-decoration: underline;
+}
+
+.compliance-quick-links {
+    margin-top: 20px;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px;
+}
+
+.compliance-quick-links h4 {
+    margin: 0 0 16px 0;
+    font-size: 14px;
+    color: #333;
+    border-bottom: 1px solid #f0f0f0;
+    padding-bottom: 8px;
+}
+
+.quick-links-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.quick-link-btn {
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 12px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    text-align: left;
+}
+
+.quick-link-btn:hover {
+    background: #e8f4fd;
+    border-color: #0077b5;
+    transform: translateY(-1px);
+}
+
+.quick-link-icon {
+    font-size: 20px;
+    width: 24px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.quick-link-text {
+    flex: 1;
+}
+
+.quick-link-text strong {
+    display: block;
+    font-size: 12px;
+    color: #333;
+    margin-bottom: 2px;
+    font-weight: 600;
+}
+
+.quick-link-text span {
+    font-size: 11px;
+    color: #666;
+    line-height: 1.2;
+}
+
+/* Simplified Compliance Styles */
+.compliance-status-simple {
+    background: #e8f4fd;
+    border: 2px solid #0077b5;
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+    margin-bottom: 16px;
+}
+
+.compliance-status-simple h4 {
+    margin: 0 0 8px 0;
+    color: #0077b5;
+    font-size: 16px;
+}
+
+.compliance-status-simple p {
+    margin: 0;
+    color: #666;
+    font-size: 14px;
+}
+
+.compliance-features-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.compliance-feature {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 12px;
+    text-align: center;
+}
+
+.compliance-feature span {
+    display: block;
+    font-size: 20px;
+    margin-bottom: 4px;
+}
+
+.compliance-feature strong {
+    font-size: 12px;
+    color: #333;
+}
+
+.compliance-actions {
+    display: flex;
+    gap: 8px;
+    justify-content: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+}
+
+.compliance-links-simple {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.compliance-quick-btn {
+    background: #f8f9fa;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 10px;
+    cursor: pointer;
+    font-size: 12px;
+    text-align: center;
+    transition: background 0.2s ease;
+}
+
+.compliance-quick-btn:hover {
+    background: #e8f4fd;
+    border-color: #0077b5;
 }
 
 /* Footer */

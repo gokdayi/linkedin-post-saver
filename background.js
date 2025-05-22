@@ -132,6 +132,11 @@ class LinkedInPostStorage {
                     sendResponse({ success: true });
                     break;
 
+                case 'checkCompliance':
+                    const complianceStatus = await this.checkComplianceStatus();
+                    sendResponse({ success: true, data: complianceStatus });
+                    break;
+
                 default:
                     sendResponse({ success: false, error: 'Unknown action' });
             }

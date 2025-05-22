@@ -128,6 +128,9 @@ class LinkedInPostSaver {
         // User consent status
         this.userConsent = false;
 
+        // Context invalidation logging (to prevent spam)
+        this.contextInvalidatedLogged = false;
+
         this.init();
     }
 
@@ -156,30 +159,37 @@ class LinkedInPostSaver {
 
     showConsentReminder() {
         try {
-            // Add a small, unobtrusive reminder that user can see
+            // Remove any existing reminder first
+            const existingReminder = document.getElementById('linkedin-post-saver-consent-reminder');
+            if (existingReminder) {
+                existingReminder.remove();
+            }
+
+            // Create reminder container
             const reminder = document.createElement('div');
             reminder.id = 'linkedin-post-saver-consent-reminder';
-            reminder.innerHTML = `
-          <div style="
-            position: fixed;
-            top: 10px;
-            right: 10px;
-            background: #0077b5;
-            color: white;
-            padding: 8px 12px;
-            border-radius: 6px;
-            font-size: 12px;
-            z-index: 9999;
-            box-shadow: 0 2px 8px rgba(0,0,0,0.2);
-            cursor: pointer;
-            font-family: Arial, sans-serif;
-          ">
-            🔒 LinkedIn Post Saver: Click to enable
-          </div>
+            reminder.style.cssText = `
+          position: fixed;
+          top: 10px;
+          right: 10px;
+          background: #0077b5;
+          color: white;
+          padding: 8px 12px;
+          border-radius: 6px;
+          font-size: 12px;
+          z-index: 9999;
+          box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+          cursor: pointer;
+          font-family: Arial, sans-serif;
+          user-select: none;
         `;
 
+            // Create text content (NO innerHTML to avoid CSP issues)
+            const reminderText = document.createTextNode('🔒 LinkedIn Post Saver: Click to enable');
+            reminder.appendChild(reminderText);
+
+            // Add click handler programmatically (NOT inline)
             reminder.addEventListener('click', () => {
-                // Try to open extension popup when clicked
                 try {
                     if (chrome.runtime?.id) {
                         chrome.runtime.sendMessage({ action: 'openPopup' });
@@ -817,7 +827,11 @@ class LinkedInPostSaver {
         try {
             // Check if extension context is still valid
             if (!chrome.runtime?.id) {
-                console.warn('LinkedIn Post Saver: Extension context invalidated, cannot save post');
+                // Only log once per session to reduce console noise
+                if (!this.contextInvalidatedLogged) {
+                    console.log('LinkedIn Post Saver: Extension reloaded - content script will reinitialize');
+                    this.contextInvalidatedLogged = true;
+                }
                 return;
             }
 

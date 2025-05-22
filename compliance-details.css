@@ -1,0 +1,373 @@
+body {
+    width: 600px;
+    max-height: 800px;
+    margin: 0;
+    padding: 0;
+    font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Arial, sans-serif;
+    background: #f8f9fa;
+    overflow-y: auto;
+}
+
+.compliance-container {
+    background: white;
+    border-radius: 8px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+    overflow: hidden;
+}
+
+.compliance-header {
+    background: linear-gradient(135deg, #0077b5, #005885);
+    color: white;
+    padding: 24px;
+    text-align: center;
+}
+
+.compliance-header h1 {
+    margin: 0 0 8px 0;
+    font-size: 28px;
+    font-weight: 600;
+}
+
+.subtitle {
+    margin: 0;
+    font-size: 16px;
+    opacity: 0.9;
+}
+
+.compliance-content {
+    padding: 24px;
+    max-height: 650px;
+    overflow-y: auto;
+}
+
+.compliance-section {
+    margin-bottom: 32px;
+}
+
+.compliance-section h2 {
+    font-size: 20px;
+    font-weight: 600;
+    margin: 0 0 16px 0;
+    color: #333;
+    border-bottom: 2px solid #0077b5;
+    padding-bottom: 8px;
+}
+
+.compliance-commitment {
+    background: #e8f4fd;
+    border-left: 4px solid #0077b5;
+    padding: 16px;
+    margin-bottom: 24px;
+    border-radius: 6px;
+}
+
+.compliance-commitment p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: #333;
+}
+
+.compliance-grid {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+    margin-bottom: 24px;
+}
+
+.compliance-card {
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 8px;
+    padding: 16px;
+    text-align: center;
+}
+
+.card-icon {
+    font-size: 32px;
+    margin-bottom: 12px;
+}
+
+.compliance-card h3 {
+    margin: 0 0 12px 0;
+    font-size: 16px;
+    color: #333;
+}
+
+.compliance-card ul {
+    list-style: none;
+    padding: 0;
+    margin: 0;
+    text-align: left;
+}
+
+.compliance-card li {
+    padding: 4px 0;
+    font-size: 13px;
+    color: #666;
+    border-bottom: 1px solid #f0f0f0;
+}
+
+.compliance-card li:last-child {
+    border-bottom: none;
+}
+
+.technical-measures {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 16px;
+}
+
+.measure-item {
+    background: #f8f9fa;
+    border-radius: 6px;
+    padding: 16px;
+}
+
+.measure-item h4 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    color: #0077b5;
+}
+
+.measure-item p {
+    margin: 0;
+    font-size: 13px;
+    color: #666;
+    line-height: 1.4;
+}
+
+.user-responsibilities {
+    margin-bottom: 24px;
+}
+
+.responsibility-card {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.responsibility-card.warning {
+    border-left: 4px solid #ff9800;
+}
+
+.responsibility-card h3 {
+    margin: 0 0 16px 0;
+    font-size: 16px;
+    color: #856404;
+}
+
+.responsibility-card ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.responsibility-card li {
+    margin: 8px 0;
+    font-size: 14px;
+    color: #856404;
+    line-height: 1.4;
+}
+
+.linkedin-resources {
+    background: #f8f9fa;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.open-source-notice {
+    background: #e8f5e8;
+    border: 1px solid #4caf50;
+    border-radius: 8px;
+    padding: 20px;
+}
+
+.open-source-header {
+    text-align: center;
+    margin-bottom: 20px;
+    padding-bottom: 16px;
+    border-bottom: 1px solid #4caf50;
+}
+
+.open-source-header h3 {
+    margin: 0 0 8px 0;
+    color: #2e7d32;
+    font-size: 18px;
+}
+
+.open-source-header p {
+    margin: 0;
+    color: #388e3c;
+    font-size: 14px;
+}
+
+.open-source-benefits {
+    margin-bottom: 20px;
+}
+
+.open-source-benefits h4 {
+    margin: 0 0 12px 0;
+    color: #2e7d32;
+    font-size: 16px;
+}
+
+.open-source-benefits ul {
+    margin: 0;
+    padding-left: 20px;
+}
+
+.open-source-benefits li {
+    margin: 8px 0;
+    color: #388e3c;
+    font-size: 14px;
+    line-height: 1.4;
+}
+
+.open-source-disclaimer {
+    background: #fff3cd;
+    border: 1px solid #ffeaa7;
+    border-radius: 6px;
+    padding: 16px;
+}
+
+.open-source-disclaimer h4 {
+    margin: 0 0 8px 0;
+    color: #856404;
+    font-size: 14px;
+}
+
+.open-source-disclaimer p {
+    margin: 0;
+    color: #856404;
+    font-size: 13px;
+    line-height: 1.4;
+}
+
+.resource-links {
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 12px;
+}
+
+.resource-link {
+    display: block;
+    background: white;
+    border: 1px solid #e0e0e0;
+    border-radius: 6px;
+    padding: 12px;
+    color: #0077b5;
+    text-decoration: none;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: center;
+    transition: all 0.2s ease;
+}
+
+.resource-link:hover {
+    background: #e8f4fd;
+    border-color: #0077b5;
+    text-decoration: none;
+}
+
+.disclaimers {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 16px;
+}
+
+.disclaimer-box {
+    background: #ffe6e6;
+    border: 1px solid #ffb3b3;
+    border-left: 4px solid #f44336;
+    border-radius: 6px;
+    padding: 16px;
+}
+
+.disclaimer-box h3 {
+    margin: 0 0 8px 0;
+    font-size: 14px;
+    color: #d32f2f;
+}
+
+.disclaimer-box p {
+    margin: 0;
+    font-size: 13px;
+    color: #666;
+    line-height: 1.4;
+}
+
+.compliance-footer {
+    padding: 20px 24px;
+    border-top: 1px solid #e0e0e0;
+    background: #f8f9fa;
+    text-align: center;
+}
+
+.footer-actions {
+    margin-bottom: 16px;
+}
+
+.btn {
+    padding: 12px 24px;
+    border: none;
+    border-radius: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+
+.btn-primary {
+    background: #0077b5;
+    color: white;
+}
+
+.btn-primary:hover {
+    background: #005885;
+}
+
+.footer-note {
+    margin: 0;
+    font-size: 12px;
+    color: #666;
+    line-height: 1.4;
+}
+
+/* Scrollbar styling */
+.compliance-content::-webkit-scrollbar {
+    width: 6px;
+}
+
+.compliance-content::-webkit-scrollbar-track {
+    background: #f1f1f1;
+    border-radius: 3px;
+}
+
+.compliance-content::-webkit-scrollbar-thumb {
+    background: #c1c1c1;
+    border-radius: 3px;
+}
+
+.compliance-content::-webkit-scrollbar-thumb:hover {
+    background: #a8a8a8;
+}
+
+/* Responsive adjustments */
+@media (max-width: 650px) {
+
+    .compliance-grid,
+    .technical-measures,
+    .resource-links {
+        grid-template-columns: 1fr;
+    }
+
+    body {
+        width: 100vw;
+        max-height: 100vh;
+    }
+
+    .compliance-container {
+        border-radius: 0;
+    }
+}

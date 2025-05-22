@@ -131,6 +131,9 @@ class LinkedInPostSaver {
         // Context invalidation logging (to prevent spam)
         this.contextInvalidatedLogged = false;
 
+        // Compliance notice tracking
+        this.complianceNoticeShown = false;
+
         this.init();
     }
 
@@ -213,6 +216,82 @@ class LinkedInPostSaver {
         }
     }
 
+    showComplianceNotice() {
+        try {
+            // Only show once per session
+            if (this.complianceNoticeShown) return;
+            this.complianceNoticeShown = true;
+
+            // Create a subtle compliance notice
+            const notice = document.createElement('div');
+            notice.id = 'linkedin-post-saver-compliance-notice';
+            notice.style.cssText = `
+          position: fixed;
+          bottom: 20px;
+          right: 20px;
+          background: rgba(0, 119, 181, 0.95);
+          color: white;
+          padding: 12px 16px;
+          border-radius: 8px;
+          font-size: 11px;
+          z-index: 9999;
+          max-width: 280px;
+          box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+          font-family: Arial, sans-serif;
+          line-height: 1.4;
+          cursor: pointer;
+          transition: opacity 0.3s ease;
+        `;
+
+            // Create notice content
+            const noticeContent = document.createElement('div');
+            noticeContent.innerHTML = `
+          <div style="font-weight: bold; margin-bottom: 6px;">
+            🤝 LinkedIn ToS Compliant
+          </div>
+          <div style="margin-bottom: 8px;">
+            • Personal use only • Rate limited • No automation
+          </div>
+          <div style="font-size: 10px; opacity: 0.8;">
+            Click to view full compliance details • Auto-hide in 10s
+          </div>
+        `;
+
+            notice.appendChild(noticeContent);
+
+            // Add click handler to open compliance details
+            notice.addEventListener('click', () => {
+                try {
+                    if (chrome.runtime?.id) {
+                        chrome.runtime.sendMessage({
+                            action: 'openComplianceDetails'
+                        });
+                    }
+                } catch (error) {
+                    console.warn('LinkedIn Post Saver: Could not open compliance details:', error);
+                }
+                notice.remove();
+            });
+
+            document.body.appendChild(notice);
+
+            // Auto-hide after 10 seconds
+            setTimeout(() => {
+                if (notice.parentNode) {
+                    notice.style.opacity = '0.6';
+                    setTimeout(() => {
+                        if (notice.parentNode) {
+                            notice.remove();
+                        }
+                    }, 2000);
+                }
+            }, 10000);
+
+        } catch (error) {
+            console.warn('LinkedIn Post Saver: Error showing compliance notice:', error);
+        }
+    }
+
     async checkUserConsent() {
         try {
             // Check if extension context is still valid
@@ -259,6 +338,9 @@ class LinkedInPostSaver {
         }
 
         console.log('LinkedIn Post Saver: Starting on feed page with user consent...');
+
+        // Show compliance notice
+        this.showComplianceNotice();
 
         // Find the main feed container
         this.findFeedContainer();

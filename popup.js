@@ -178,6 +178,7 @@ class PopupController {
         document.getElementById('clearAllData')?.addEventListener('click', () => this.clearAllData());
         document.getElementById('reviewConsent')?.addEventListener('click', () => this.reviewConsent());
         document.getElementById('revokeConsent')?.addEventListener('click', () => this.revokeConsent());
+        document.getElementById('viewComplianceDetails')?.addEventListener('click', () => this.viewComplianceDetails());
 
         // Footer
         document.getElementById('openLinkedIn')?.addEventListener('click', () => this.openLinkedIn());
@@ -957,6 +958,13 @@ class PopupController {
             console.error('Error revoking consent:', error);
             this.showNotification('Error revoking consent', 'error');
         }
+    }
+
+    viewComplianceDetails() {
+        chrome.tabs.create({
+            url: chrome.runtime.getURL('compliance-details.html'),
+            active: true
+        });
     }
 }
 

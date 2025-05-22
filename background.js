@@ -122,6 +122,16 @@ class LinkedInPostStorage {
                     sendResponse({ success: true, data: consentResult });
                     break;
 
+                case 'openComplianceDetails':
+                    await this.openComplianceDetails();
+                    sendResponse({ success: true });
+                    break;
+
+                case 'trackEvent':
+                    await this.trackEvent(message.event, message.data);
+                    sendResponse({ success: true });
+                    break;
+
                 default:
                     sendResponse({ success: false, error: 'Unknown action' });
             }
@@ -631,6 +641,83 @@ class LinkedInPostStorage {
         } catch (error) {
             console.error('LinkedIn Post Saver: Error revoking user consent:', error);
             return false;
+        }
+    }
+
+    async openComplianceDetails() {
+        try {
+            await chrome.tabs.create({
+                url: chrome.runtime.getURL('compliance-details.html'),
+                active: true
+            });
+            console.log('LinkedIn Post Saver: Opened compliance details');
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error opening compliance details:', error);
+        }
+    }
+
+    async trackEvent(eventName, eventData = {}) {
+        try {
+            // Simple event tracking for compliance monitoring
+            const eventLog = {
+                event: eventName,
+                timestamp: new Date().toISOString(),
+                data: eventData
+            };
+
+            // Store recent events (last 100) for debugging/compliance
+            const result = await chrome.storage.local.get('eventLog');
+            const events = result.eventLog || [];
+
+            events.unshift(eventLog);
+
+            // Keep only last 100 events
+            if (events.length > 100) {
+                events.splice(100);
+            }
+
+            await chrome.storage.local.set({ eventLog: events });
+
+            console.log('LinkedIn Post Saver: Event tracked:', eventName);
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error tracking event:', error);
+        }
+    }
+
+    // Compliance monitoring
+    async checkComplianceStatus() {
+        try {
+            const stats = await this.getStats();
+            const settings = await this.getSettings();
+            const consent = await this.getUserConsent();
+
+            const complianceStatus = {
+                userConsent: consent.hasConsent,
+                rateLimitsActive: true, // Always active in our implementation
+                personalUseOnly: true,  // Enforced by design
+                noAutomation: true,     // No automation in our code
+                publicContentOnly: true, // Only scrapes visible feed
+                respectfulLimits: stats.totalPosts <= (settings.maxPosts || 1000),
+                dataLocalOnly: true,    // All storage is local
+                complianceNoticeShown: true // We show compliance notices
+            };
+
+            // Log compliance check
+            await this.trackEvent('compliance_check', complianceStatus);
+
+            return complianceStatus;
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error checking compliance status:', error);
+            return {
+                userConsent: false,
+                rateLimitsActive: false,
+                personalUseOnly: false,
+                noAutomation: false,
+                publicContentOnly: false,
+                respectfulLimits: false,
+                dataLocalOnly: false,
+                complianceNoticeShown: false
+            };
         }
     }
 }

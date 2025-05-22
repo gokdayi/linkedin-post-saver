@@ -3,7 +3,373 @@
  * Runs on LinkedIn pages to detect and scrape posts
  */
 
-// Smart Rate Limiter with Queue System
+// Data Sanitization Class for Security
+class DataSanitizer {
+    constructor() {
+        // Dangerous HTML tags that should be completely removed
+        this.dangerousTags = [
+            'script', 'iframe', 'object', 'embed', 'form', 'input', 'textarea',
+            'button', 'select', 'option', 'link', 'meta', 'style', 'base',
+            'applet', 'body', 'head', 'html', 'title'
+        ];
+
+        // Dangerous attributes that should be removed
+        this.dangerousAttributes = [
+            'onclick', 'onload', 'onerror', 'onmouseover', 'onmouseout', 'onfocus',
+            'onblur', 'onchange', 'onsubmit', 'onreset', 'onselect', 'onunload',
+            'onbeforeunload', 'onresize', 'onscroll', 'javascript:', 'vbscript:',
+            'data-track', 'data-analytics', 'data-gtm'
+        ];
+
+        // Allowed HTML tags for post content (very restrictive)
+        this.allowedTags = ['p', 'br', 'strong', 'b', 'em', 'i', 'u', 'span', 'div'];
+
+        // Maximum lengths for different content types
+        this.maxLengths = {
+            text: 10000,      // 10KB max for post text
+            title: 500,       // 500 chars max for titles
+            authorName: 200,  // 200 chars max for author names
+            url: 2000,        // 2KB max for URLs
+            alt: 300          // 300 chars max for alt text
+        };
+    }
+
+    // Main sanitization method for post data
+    sanitizePostData(postData) {
+        if (!postData || typeof postData !== 'object') {
+            return null;
+        }
+
+        try {
+            const sanitized = {};
+
+            // Sanitize basic text fields
+            sanitized.id = this.sanitizeId(postData.id);
+            sanitized.title = this.sanitizeText(postData.title, 'title');
+            sanitized.text = this.sanitizeText(postData.text, 'text');
+            sanitized.timestamp = this.sanitizeTimestamp(postData.timestamp);
+            sanitized.scrapedAt = this.sanitizeTimestamp(postData.scrapedAt);
+            sanitized.url = this.sanitizeUrl(postData.url);
+            sanitized.postUrl = this.sanitizeUrl(postData.postUrl);
+
+            // Sanitize author data
+            if (postData.author && typeof postData.author === 'object') {
+                sanitized.author = this.sanitizeAuthorData(postData.author);
+            }
+
+            // Sanitize media data
+            if (Array.isArray(postData.media)) {
+                sanitized.media = this.sanitizeMediaData(postData.media);
+            } else {
+                sanitized.media = [];
+            }
+
+            // Sanitize engagement data
+            if (postData.engagement && typeof postData.engagement === 'object') {
+                sanitized.engagement = this.sanitizeEngagementData(postData.engagement);
+            }
+
+            // Add sanitization metadata
+            sanitized.sanitizedAt = new Date().toISOString();
+            sanitized.sanitizationVersion = '1.0';
+
+            return sanitized;
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error sanitizing post data:', error);
+            return null;
+        }
+    }
+
+    // Sanitize text content
+    sanitizeText(text, type = 'text') {
+        if (!text || typeof text !== 'string') {
+            return '';
+        }
+
+        let sanitized = text;
+
+        // Remove dangerous HTML tags and scripts
+        sanitized = this.removeHtmlTags(sanitized);
+
+        // Remove dangerous attributes and protocols
+        sanitized = this.removeDangerousContent(sanitized);
+
+        // Normalize whitespace
+        sanitized = this.normalizeWhitespace(sanitized);
+
+        // Apply length limits
+        const maxLength = this.maxLengths[type] || this.maxLengths.text;
+        if (sanitized.length > maxLength) {
+            sanitized = sanitized.substring(0, maxLength - 3) + '...';
+        }
+
+        return sanitized.trim();
+    }
+
+    // Remove HTML tags (keep only safe ones for text content)
+    removeHtmlTags(text) {
+        if (!text) return '';
+
+        // Remove all HTML tags for safety (we don't need HTML in saved posts)
+        return text.replace(/<[^>]*>/g, ' ');
+    }
+
+    // Remove dangerous content patterns
+    removeDangerousContent(text) {
+        if (!text) return '';
+
+        let sanitized = text;
+
+        // Remove javascript: and vbscript: protocols
+        sanitized = sanitized.replace(/javascript:/gi, '');
+        sanitized = sanitized.replace(/vbscript:/gi, '');
+
+        // Remove data: URIs (potential for abuse)
+        sanitized = sanitized.replace(/data:/gi, '');
+
+        // Remove potentially dangerous Unicode characters
+        sanitized = sanitized.replace(/[\u0000-\u001F\u007F-\u009F]/g, '');
+
+        // Remove control characters
+        sanitized = sanitized.replace(/[\x00-\x1F\x7F]/g, '');
+
+        return sanitized;
+    }
+
+    // Normalize whitespace
+    normalizeWhitespace(text) {
+        if (!text) return '';
+
+        return text
+            .replace(/\s+/g, ' ')           // Multiple spaces to single space
+            .replace(/\n\s*\n/g, '\n')      // Multiple newlines to single newline
+            .trim();
+    }
+
+    // Sanitize URLs - FIXED to allow LinkedIn media URLs
+    sanitizeUrl(url) {
+        if (!url || typeof url !== 'string') {
+            return '';
+        }
+
+        try {
+            // Only allow HTTP/HTTPS URLs
+            const urlObj = new URL(url);
+
+            if (!['http:', 'https:'].includes(urlObj.protocol)) {
+                return '';
+            }
+
+            // Allow LinkedIn URLs AND LinkedIn media CDN URLs
+            const allowedHosts = [
+                'linkedin.com',
+                'licdn.com',           // LinkedIn CDN
+                'media.licdn.com',     // LinkedIn media
+                'media-exp1.licdn.com', // LinkedIn media experimental
+                'media-exp2.licdn.com',
+                'dms.licdn.com'        // LinkedIn DMS media
+            ];
+
+            const isAllowedHost = allowedHosts.some(host =>
+                urlObj.hostname.includes(host) || urlObj.hostname.endsWith(host)
+            );
+
+            if (!isAllowedHost) {
+                console.log('LinkedIn Post Saver: Blocked non-LinkedIn URL:', urlObj.hostname);
+                return '';
+            }
+
+            // Remove dangerous query parameters but keep necessary ones
+            const cleanUrl = this.cleanUrlParameters(url);
+
+            // Apply length limit
+            if (cleanUrl.length > this.maxLengths.url) {
+                return '';
+            }
+
+            return cleanUrl;
+
+        } catch (error) {
+            // Invalid URL
+            console.warn('LinkedIn Post Saver: Invalid URL:', url);
+            return '';
+        }
+    }
+
+    // Clean URL parameters - LESS aggressive cleaning
+    cleanUrlParameters(url) {
+        try {
+            const urlObj = new URL(url);
+
+            // Only remove clearly dangerous tracking parameters
+            const trackingParams = [
+                'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'utm_term',
+                'gclid', 'fbclid', 'msclkid', '_ga', 'mc_eid'
+                // Removed 'trk' as LinkedIn uses it for legitimate purposes
+            ];
+
+            trackingParams.forEach(param => {
+                urlObj.searchParams.delete(param);
+            });
+
+            return urlObj.toString();
+        } catch (error) {
+            return url;
+        }
+    }
+
+    // Sanitize ID fields
+    sanitizeId(id) {
+        if (!id || typeof id !== 'string') {
+            return '';
+        }
+
+        // Only allow alphanumeric, hyphens, underscores, and colons (for URNs)
+        return id.replace(/[^a-zA-Z0-9\-_:]/g, '').substring(0, 200);
+    }
+
+    // Sanitize timestamps
+    sanitizeTimestamp(timestamp) {
+        if (!timestamp) {
+            return '';
+        }
+
+        try {
+            const date = new Date(timestamp);
+            if (isNaN(date.getTime())) {
+                return '';
+            }
+
+            // Ensure timestamp is not in the future (with 1 hour tolerance)
+            const now = new Date();
+            const oneHourFromNow = new Date(now.getTime() + 60 * 60 * 1000);
+
+            if (date > oneHourFromNow) {
+                return now.toISOString();
+            }
+
+            return date.toISOString();
+        } catch (error) {
+            return '';
+        }
+    }
+
+    // Sanitize author data
+    sanitizeAuthorData(author) {
+        if (!author || typeof author !== 'object') {
+            return {};
+        }
+
+        return {
+            name: this.sanitizeText(author.name, 'authorName'),
+            title: this.sanitizeText(author.title, 'title'),
+            profileUrl: this.sanitizeUrl(author.profileUrl),
+            avatar: this.sanitizeUrl(author.avatar)
+        };
+    }
+
+    // Sanitize media data
+    sanitizeMediaData(media) {
+        if (!Array.isArray(media)) {
+            return [];
+        }
+
+        return media
+            .slice(0, 10) // Limit to 10 media items max
+            .map(item => this.sanitizeMediaItem(item))
+            .filter(item => item !== null);
+    }
+
+    // Sanitize individual media item
+    sanitizeMediaItem(item) {
+        if (!item || typeof item !== 'object') {
+            return null;
+        }
+
+        const allowedTypes = ['image', 'video'];
+        if (!allowedTypes.includes(item.type)) {
+            return null;
+        }
+
+        const sanitizedUrl = this.sanitizeUrl(item.url);
+        if (!sanitizedUrl) {
+            return null;
+        }
+
+        return {
+            type: item.type,
+            url: sanitizedUrl,
+            alt: this.sanitizeText(item.alt, 'alt'),
+            poster: item.poster ? this.sanitizeUrl(item.poster) : ''
+        };
+    }
+
+    // Sanitize engagement data
+    sanitizeEngagementData(engagement) {
+        if (!engagement || typeof engagement !== 'object') {
+            return {};
+        }
+
+        const sanitized = {};
+
+        // Only allow numeric values, max 1 billion
+        ['likes', 'comments', 'shares'].forEach(key => {
+            if (typeof engagement[key] === 'number' &&
+                engagement[key] >= 0 &&
+                engagement[key] <= 1000000000) {
+                sanitized[key] = Math.floor(engagement[key]);
+            } else {
+                sanitized[key] = 0;
+            }
+        });
+
+        return sanitized;
+    }
+
+    // Validate sanitized data before storage - LESS strict validation
+    validateSanitizedData(data) {
+        if (!data || typeof data !== 'object') {
+            console.warn('LinkedIn Post Saver: Invalid data object');
+            return false;
+        }
+
+        // Required field check - only ID is truly required
+        if (!data.id) {
+            console.warn('LinkedIn Post Saver: Missing post ID');
+            return false;
+        }
+
+        // Even more lenient content validation
+        // Accept ANY meaningful content rather than requiring multiple fields
+        let hasContent = false;
+        
+        // Check if post has ANY of these fields with content
+        if (data.title && data.title.trim().length > 0) {
+            hasContent = true;
+        } else if (data.text && data.text.trim().length > 0) {
+            hasContent = true;
+        } else if (data.author && data.author.name && data.author.name.trim().length > 0) {
+            hasContent = true;
+        } else if (data.postUrl && data.postUrl.trim().length > 0) {
+            hasContent = true;
+        }
+        
+        if (!hasContent) {
+            console.warn('LinkedIn Post Saver: No meaningful content to save');
+            return false;
+        }
+
+        // Check data size (increased limit)
+        const dataSize = JSON.stringify(data).length;
+        if (dataSize > 100000) { // 100KB max per post (increased from 50KB)
+            console.warn('LinkedIn Post Saver: Post data too large:', dataSize);
+            return false;
+        }
+
+        return true;
+    }
+}
 class SmartRateLimiter {
     constructor(maxRequests = 20, windowMs = 60000) { // 20 posts per minute (more reasonable)
         this.maxRequests = maxRequests;
@@ -28,7 +394,7 @@ class SmartRateLimiter {
         return true;
     }
 
-    // Add post to queue if rate limited
+    // Process each post with sanitization
     async processWithQueue(postElement, processor) {
         if (this.canProceed()) {
             // Process immediately if under rate limit
@@ -65,9 +431,10 @@ class SmartRateLimiter {
         this.isProcessingQueue = true;
 
         // Process queue every 3 seconds
-        const processQueue = async () => {
-            while (this.queue.length > 0 && this.canProceed()) {
-                const queueItem = this.queue.shift();
+        const self = this;
+        const processQueue = async function () {
+            while (self.queue.length > 0 && self.canProceed()) {
+                const queueItem = self.queue.shift();
 
                 // Skip if post is too old (older than 5 minutes)
                 if (Date.now() - queueItem.timestamp > 300000) {
@@ -82,10 +449,10 @@ class SmartRateLimiter {
             }
 
             // Continue processing if queue still has items
-            if (this.queue.length > 0) {
+            if (self.queue.length > 0) {
                 setTimeout(processQueue, 3000);
             } else {
-                this.isProcessingQueue = false;
+                self.isProcessingQueue = false;
             }
         };
 
@@ -120,6 +487,9 @@ class LinkedInPostSaver {
 
         // Smart rate limiting with queue system - more reasonable limits
         this.rateLimiter = new SmartRateLimiter(20, 60000); // 20 posts per minute
+
+        // Data sanitizer for security
+        this.sanitizer = new DataSanitizer();
 
         // Enhanced duplicate tracking
         this.lastProcessTime = 0;
@@ -659,13 +1029,20 @@ class LinkedInPostSaver {
                 postData.scrapedAt = new Date().toISOString();
                 postData.url = window.location.href;
 
+                // SANITIZE DATA BEFORE SAVING
+                const sanitizedData = this.sanitizer.sanitizePostData(postData);
+                if (!sanitizedData || !this.sanitizer.validateSanitizedData(sanitizedData)) {
+                    console.warn('LinkedIn Post Saver: Post data failed sanitization, skipping save');
+                    return;
+                }
+
                 // Mark as processed BEFORE saving (to prevent duplicates)
                 this.processedPosts.add(postId);
 
-                // Send to background script for storage
-                await this.savePost(postData);
+                // Send sanitized data to background script for storage
+                await this.savePost(sanitizedData);
 
-                console.log('LinkedIn Post Saver: Successfully processed post:', postData.title?.substring(0, 50) + '...');
+                console.log('LinkedIn Post Saver: Successfully processed and sanitized post:', sanitizedData.title?.substring(0, 50) + '...');
             });
 
         } catch (error) {

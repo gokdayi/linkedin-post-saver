@@ -155,9 +155,11 @@ class LinkedInPostStorage {
                 throw new Error('User consent required to save posts');
             }
 
-            // Validate post data
-            if (!postData || !postData.id) {
-                throw new Error('Invalid post data');
+            // ADDITIONAL SANITIZATION CHECK (defense in depth)
+            const sanitizedData = this.sanitizeStorageData(postData);
+            if (!sanitizedData) {
+                console.warn('LinkedIn Post Saver: Post data failed background sanitization');
+                throw new Error('Post data failed sanitization checks');
             }
 
             // Get existing posts
@@ -165,17 +167,17 @@ class LinkedInPostStorage {
             const posts = result[this.storageKey] || {};
 
             // Check if post already exists
-            if (posts[postData.id]) {
+            if (posts[sanitizedData.id]) {
                 console.log('LinkedIn Post Saver: Post already exists, skipping...');
                 return;
             }
 
             // Add metadata
-            postData.savedAt = new Date().toISOString();
-            postData.version = 1;
+            sanitizedData.savedAt = new Date().toISOString();
+            sanitizedData.version = 1;
 
             // Save the post
-            posts[postData.id] = postData;
+            posts[sanitizedData.id] = sanitizedData;
 
             // Apply storage limits
             await this.applyStorageLimits(posts);
@@ -185,15 +187,135 @@ class LinkedInPostStorage {
                 [this.storageKey]: posts
             });
 
-            console.log('LinkedIn Post Saver: Post saved successfully:', postData.title?.substring(0, 50));
+            console.log('LinkedIn Post Saver: Post saved successfully:', sanitizedData.title?.substring(0, 50));
 
             // Show notification if enabled
-            await this.showSaveNotification(postData);
+            await this.showSaveNotification(sanitizedData);
 
         } catch (error) {
             console.error('LinkedIn Post Saver: Error saving post:', error);
             throw error;
         }
+    }
+
+    // Background sanitization (defense in depth) - MORE ROBUST
+    sanitizeStorageData(data) {
+        if (!data || typeof data !== 'object') {
+            console.warn('LinkedIn Post Saver: Invalid data object in sanitizeStorageData');
+            return null;
+        }
+
+        try {
+            // ID is the only truly required field
+            if (!data.id || typeof data.id !== 'string') {
+                console.warn('LinkedIn Post Saver: Missing or invalid post ID');
+                // Try to generate an ID if missing
+                if (!data.id && data.text) {
+                    data.id = 'generated-' + Date.now() + '-' + Math.floor(Math.random() * 1000);
+                    console.info('LinkedIn Post Saver: Generated missing ID for post');
+                } else {
+                    return null;
+                }
+            }
+
+            // Remove any function properties (security)
+            const cleanData = JSON.parse(JSON.stringify(data));
+
+            // Ensure no high-risk executable content
+            if (this.containsExecutableContent(cleanData)) {
+                console.warn('LinkedIn Post Saver: Executable content detected and blocked');
+                // Try to sanitize instead of rejecting
+                const sanitizedJson = JSON.stringify(cleanData)
+                    .replace(/javascript:/gi, 'blocked-js:')
+                    .replace(/vbscript:/gi, 'blocked-vbs:')
+                    .replace(/<script/gi, '<blocked-script');
+                
+                try {
+                    // If sanitization worked, use the sanitized version
+                    const resanitizedData = JSON.parse(sanitizedJson);
+                    console.info('LinkedIn Post Saver: Successfully sanitized potentially malicious content');
+                    cleanData = resanitizedData;
+                } catch (e) {
+                    // If sanitization failed, reject the data
+                    console.error('LinkedIn Post Saver: Could not sanitize malicious content', e);
+                    return null;
+                }
+            }
+
+            // Size check - with increased tolerance
+            const dataSize = JSON.stringify(cleanData).length;
+            if (dataSize > 150000) { // Increased to 150KB max
+                console.warn('LinkedIn Post Saver: Post data too large:', dataSize);
+                return this.truncatePostData(cleanData);
+            }
+
+            return cleanData;
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error in background sanitization:', error);
+            // More detailed error logging
+            console.error('Data that caused error:', typeof data, data ? Object.keys(data) : 'null');
+            return null;
+        }
+    }
+
+    // Check for executable content - LESS AGGRESSIVE
+    containsExecutableContent(obj) {
+        // Most dangerous patterns that should be blocked
+        const highRiskPatterns = [
+            /javascript:/i,
+            /vbscript:/i,
+            /<script>/i,
+            /<script\s/i,
+            /eval\(["']/i,
+            /new\s+Function\(["']/i
+        ];
+
+        // Convert to string for checking
+        const jsonString = JSON.stringify(obj);
+        
+        // Check for high risk patterns - these are definite blocks
+        if (highRiskPatterns.some(pattern => pattern.test(jsonString))) {
+            console.warn('LinkedIn Post Saver: High risk content detected in post data');
+            return true;
+        }
+        
+        // Less dangerous patterns - these are now just logged but not blocked
+        // to prevent false positives while still monitoring security
+        const monitorPatterns = [
+            /data:/i,
+            /onclick/i,
+            /onerror/i,
+            /onload/i
+        ];
+        
+        if (monitorPatterns.some(pattern => pattern.test(jsonString))) {
+            console.info('LinkedIn Post Saver: Potentially risky content detected but allowed');
+            // Not blocking these anymore, just monitoring
+        }
+        
+        return false; // Allow content unless high risk pattern matched
+    }
+
+    // Truncate post data if too large
+    truncatePostData(data) {
+        const truncated = { ...data };
+
+        // Truncate text fields
+        if (truncated.text && truncated.text.length > 5000) {
+            truncated.text = truncated.text.substring(0, 5000) + '... [truncated]';
+        }
+
+        if (truncated.title && truncated.title.length > 200) {
+            truncated.title = truncated.title.substring(0, 200) + '...';
+        }
+
+        // Limit media items
+        if (truncated.media && truncated.media.length > 5) {
+            truncated.media = truncated.media.slice(0, 5);
+        }
+
+        return truncated;
     }
 
     async applyStorageLimits(posts) {
@@ -469,12 +591,36 @@ class LinkedInPostStorage {
             const result = await chrome.storage.local.get(this.storageKey);
             const posts = result[this.storageKey] || {};
 
+            // SANITIZE EXPORT DATA
+            const sanitizedPosts = {};
+            let sanitizedCount = 0;
+            let skippedCount = 0;
+
+            for (const [postId, postData] of Object.entries(posts)) {
+                const sanitizedPost = this.sanitizeExportData(postData);
+                if (sanitizedPost) {
+                    sanitizedPosts[postId] = sanitizedPost;
+                    sanitizedCount++;
+                } else {
+                    skippedCount++;
+                    console.warn('LinkedIn Post Saver: Skipped post during export due to sanitization failure:', postId);
+                }
+            }
+
             const exportData = {
                 version: '1.0',
                 exportDate: new Date().toISOString(),
-                postsCount: Object.keys(posts).length,
-                posts: posts
+                postsCount: sanitizedCount,
+                skippedCount: skippedCount,
+                posts: sanitizedPosts,
+                exportMetadata: {
+                    userAgent: navigator.userAgent,
+                    extensionVersion: chrome.runtime.getManifest().version,
+                    sanitizationVersion: '1.0'
+                }
             };
+
+            console.log(`LinkedIn Post Saver: Export completed - ${sanitizedCount} posts exported, ${skippedCount} skipped`);
 
             return exportData;
         } catch (error) {
@@ -483,29 +629,241 @@ class LinkedInPostStorage {
         }
     }
 
+    // Sanitize data for export
+    sanitizeExportData(postData) {
+        if (!postData || typeof postData !== 'object') {
+            return null;
+        }
+
+        try {
+            // Create a clean copy
+            const sanitized = JSON.parse(JSON.stringify(postData));
+
+            // Remove sensitive or unnecessary fields
+            delete sanitized.__proto__;
+            delete sanitized.constructor;
+
+            // Validate required fields
+            if (!sanitized.id || !sanitized.savedAt) {
+                return null;
+            }
+
+            // Clean text fields
+            if (sanitized.title) {
+                sanitized.title = this.cleanTextForExport(sanitized.title);
+            }
+            if (sanitized.text) {
+                sanitized.text = this.cleanTextForExport(sanitized.text);
+            }
+
+            // Validate and clean URLs
+            if (sanitized.url) {
+                sanitized.url = this.validateUrlForExport(sanitized.url);
+            }
+            if (sanitized.postUrl) {
+                sanitized.postUrl = this.validateUrlForExport(sanitized.postUrl);
+            }
+
+            // Clean author data
+            if (sanitized.author) {
+                sanitized.author = this.sanitizeAuthorForExport(sanitized.author);
+            }
+
+            // Clean media data
+            if (sanitized.media) {
+                sanitized.media = this.sanitizeMediaForExport(sanitized.media);
+            }
+
+            // Add export timestamp
+            sanitized.exportedAt = new Date().toISOString();
+
+            return sanitized;
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error sanitizing export data:', error);
+            return null;
+        }
+    }
+
+    cleanTextForExport(text) {
+        if (!text || typeof text !== 'string') {
+            return '';
+        }
+
+        // Remove any remaining HTML tags
+        let cleaned = text.replace(/<[^>]*>/g, '');
+
+        // Remove dangerous protocols
+        cleaned = cleaned.replace(/javascript:/gi, '');
+        cleaned = cleaned.replace(/vbscript:/gi, '');
+
+        // Remove control characters
+        cleaned = cleaned.replace(/[\x00-\x1F\x7F]/g, '');
+
+        return cleaned.trim();
+    }
+
+    validateUrlForExport(url) {
+        if (!url || typeof url !== 'string') {
+            return '';
+        }
+
+        try {
+            const urlObj = new URL(url);
+            if (['http:', 'https:'].includes(urlObj.protocol)) {
+                // Allow LinkedIn and LinkedIn CDN URLs
+                const allowedHosts = [
+                    'linkedin.com',
+                    'licdn.com',
+                    'media.licdn.com',
+                    'media-exp1.licdn.com',
+                    'media-exp2.licdn.com',
+                    'dms.licdn.com'
+                ];
+
+                const isAllowed = allowedHosts.some(host =>
+                    urlObj.hostname.includes(host) || urlObj.hostname.endsWith(host)
+                );
+
+                return isAllowed ? url : '';
+            }
+            return '';
+        } catch (error) {
+            return '';
+        }
+    }
+
+    sanitizeAuthorForExport(author) {
+        if (!author || typeof author !== 'object') {
+            return {};
+        }
+
+        return {
+            name: this.cleanTextForExport(author.name),
+            title: this.cleanTextForExport(author.title),
+            profileUrl: this.validateUrlForExport(author.profileUrl),
+            avatar: this.validateUrlForExport(author.avatar)
+        };
+    }
+
+    sanitizeMediaForExport(media) {
+        if (!Array.isArray(media)) {
+            return [];
+        }
+
+        return media
+            .filter(item => item && typeof item === 'object')
+            .map(item => ({
+                type: item.type === 'image' || item.type === 'video' ? item.type : 'unknown',
+                url: this.validateUrlForExport(item.url),
+                alt: this.cleanTextForExport(item.alt),
+                poster: this.validateUrlForExport(item.poster)
+            }))
+            .filter(item => item.url); // Only include items with valid URLs
+    }
+
     async importPosts(importData) {
         try {
-            if (!importData || !importData.posts) {
-                throw new Error('Invalid import data');
+            // VALIDATE AND SANITIZE IMPORT DATA
+            const validatedData = this.validateImportData(importData);
+            if (!validatedData) {
+                throw new Error('Invalid import data format');
             }
 
             const result = await chrome.storage.local.get(this.storageKey);
             const existingPosts = result[this.storageKey] || {};
 
-            // Merge imported posts with existing ones
-            const mergedPosts = { ...existingPosts, ...importData.posts };
+            let importedCount = 0;
+            let skippedCount = 0;
+            let errorCount = 0;
 
-            // Apply storage limits
-            await this.applyStorageLimits(mergedPosts);
+            // Process each post with sanitization
+            for (const [postId, postData] of Object.entries(validatedData.posts)) {
+                try {
+                    // Sanitize individual post
+                    const sanitizedPost = this.sanitizeStorageData(postData);
+                    if (!sanitizedPost) {
+                        skippedCount++;
+                        continue;
+                    }
 
+                    // Check for duplicates
+                    if (existingPosts[postId]) {
+                        skippedCount++;
+                        continue;
+                    }
+
+                    // Add import metadata
+                    sanitizedPost.importedAt = new Date().toISOString();
+                    sanitizedPost.importSource = validatedData.version || 'unknown';
+
+                    existingPosts[postId] = sanitizedPost;
+                    importedCount++;
+
+                } catch (error) {
+                    console.error('LinkedIn Post Saver: Error processing import post:', postId, error);
+                    errorCount++;
+                }
+            }
+
+            // Apply storage limits after import
+            await this.applyStorageLimits(existingPosts);
+
+            // Save merged data
             await chrome.storage.local.set({
-                [this.storageKey]: mergedPosts
+                [this.storageKey]: existingPosts
             });
 
-            console.log('LinkedIn Post Saver: Posts imported successfully');
+            console.log(`LinkedIn Post Saver: Import completed - ${importedCount} imported, ${skippedCount} skipped, ${errorCount} errors`);
+
+            // Track import event
+            await this.trackEvent('posts_imported', {
+                importedCount,
+                skippedCount,
+                errorCount,
+                sourceVersion: validatedData.version
+            });
+
         } catch (error) {
             console.error('LinkedIn Post Saver: Error importing posts:', error);
             throw error;
+        }
+    }
+
+    // Validate import data structure and content
+    validateImportData(importData) {
+        try {
+            if (!importData || typeof importData !== 'object') {
+                return null;
+            }
+
+            // Check basic structure
+            if (!importData.posts || typeof importData.posts !== 'object') {
+                return null;
+            }
+
+            // Check data size (max 50MB for import)
+            const dataSize = JSON.stringify(importData).length;
+            if (dataSize > 50 * 1024 * 1024) {
+                throw new Error('Import data too large (max 50MB)');
+            }
+
+            // Validate post count
+            const postCount = Object.keys(importData.posts).length;
+            if (postCount > 10000) {
+                throw new Error('Too many posts in import (max 10,000)');
+            }
+
+            // Basic structure validation passed
+            return {
+                version: importData.version || '1.0',
+                posts: importData.posts,
+                postsCount: postCount
+            };
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Import validation error:', error);
+            return null;
         }
     }
 
@@ -696,6 +1054,9 @@ class LinkedInPostStorage {
             const settings = await this.getSettings();
             const consent = await this.getUserConsent();
 
+            // Check sanitization status
+            const sanitizationStatus = await this.checkSanitizationHealth();
+
             const complianceStatus = {
                 userConsent: consent.hasConsent,
                 rateLimitsActive: true, // Always active in our implementation
@@ -704,7 +1065,9 @@ class LinkedInPostStorage {
                 publicContentOnly: true, // Only scrapes visible feed
                 respectfulLimits: stats.totalPosts <= (settings.maxPosts || 1000),
                 dataLocalOnly: true,    // All storage is local
-                complianceNoticeShown: true // We show compliance notices
+                complianceNoticeShown: true, // We show compliance notices
+                dataSanitizationActive: sanitizationStatus.active,
+                securityMeasuresActive: sanitizationStatus.securityActive
             };
 
             // Log compliance check
@@ -721,7 +1084,59 @@ class LinkedInPostStorage {
                 publicContentOnly: false,
                 respectfulLimits: false,
                 dataLocalOnly: false,
-                complianceNoticeShown: false
+                complianceNoticeShown: false,
+                dataSanitizationActive: false,
+                securityMeasuresActive: false
+            };
+        }
+    }
+
+    // Check sanitization health
+    async checkSanitizationHealth() {
+        try {
+            // Sample a few recent posts to check sanitization
+            const result = await chrome.storage.local.get(this.storageKey);
+            const posts = result[this.storageKey] || {};
+
+            const postArray = Object.values(posts);
+            const recentPosts = postArray
+                .sort((a, b) => new Date(b.savedAt) - new Date(a.savedAt))
+                .slice(0, 10); // Check last 10 posts
+
+            let sanitizedCount = 0;
+            let securityIssues = 0;
+
+            for (const post of recentPosts) {
+                // Check if post has sanitization metadata
+                if (post.sanitizedAt || post.sanitizationVersion) {
+                    sanitizedCount++;
+                }
+
+                // Check for security issues
+                if (this.containsExecutableContent(post)) {
+                    securityIssues++;
+                }
+            }
+
+            const sanitizationRate = recentPosts.length > 0 ?
+                (sanitizedCount / recentPosts.length) : 1;
+
+            return {
+                active: sanitizationRate > 0.8, // 80% of posts should be sanitized
+                securityActive: securityIssues === 0,
+                sanitizationRate,
+                securityIssues,
+                checkedPosts: recentPosts.length
+            };
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error checking sanitization health:', error);
+            return {
+                active: false,
+                securityActive: false,
+                sanitizationRate: 0,
+                securityIssues: -1,
+                checkedPosts: 0
             };
         }
     }

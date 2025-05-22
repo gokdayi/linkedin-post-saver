@@ -3,14 +3,16 @@
  * Runs on LinkedIn pages to detect and scrape posts
  */
 
-// Rate Limiter Class for preventing abuse
-class RateLimiter {
-    constructor(maxRequests = 10, windowMs = 30000) { // 10 posts per 30 seconds (more reasonable)
+// Smart Rate Limiter with Queue System
+class SmartRateLimiter {
+    constructor(maxRequests = 20, windowMs = 60000) { // 20 posts per minute (more reasonable)
         this.maxRequests = maxRequests;
         this.windowMs = windowMs;
         this.requests = [];
+        this.queue = [];
+        this.isProcessingQueue = false;
         this.lastLogTime = 0;
-        this.logThrottleMs = 5000; // Only log rate limit messages every 5 seconds
+        this.logThrottleMs = 10000; // Log every 10 seconds
     }
 
     canProceed() {
@@ -19,16 +21,75 @@ class RateLimiter {
         this.requests = this.requests.filter(time => now - time < this.windowMs);
 
         if (this.requests.length >= this.maxRequests) {
-            // Throttle rate limit log messages
-            if (now - this.lastLogTime > this.logThrottleMs) {
-                console.log(`LinkedIn Post Saver: Rate limit reached - ${this.requests.length}/${this.maxRequests} posts in ${this.windowMs / 1000}s window. Throttling new saves...`);
-                this.lastLogTime = now;
-            }
             return false;
         }
 
         this.requests.push(now);
         return true;
+    }
+
+    // Add post to queue if rate limited
+    async processWithQueue(postElement, processor) {
+        if (this.canProceed()) {
+            // Process immediately if under rate limit
+            return await processor(postElement);
+        } else {
+            // Add to queue if rate limited
+            this.addToQueue(postElement, processor);
+            this.scheduleQueueProcessing();
+        }
+    }
+
+    addToQueue(postElement, processor) {
+        // Prevent queue from growing too large
+        if (this.queue.length >= 50) {
+            this.queue.shift(); // Remove oldest queued item
+        }
+
+        this.queue.push({
+            postElement,
+            processor,
+            timestamp: Date.now()
+        });
+
+        const now = Date.now();
+        if (now - this.lastLogTime > this.logThrottleMs) {
+            console.log(`LinkedIn Post Saver: Rate limited - queued post (${this.queue.length} in queue)`);
+            this.lastLogTime = now;
+        }
+    }
+
+    scheduleQueueProcessing() {
+        if (this.isProcessingQueue) return;
+
+        this.isProcessingQueue = true;
+
+        // Process queue every 3 seconds
+        const processQueue = async () => {
+            while (this.queue.length > 0 && this.canProceed()) {
+                const queueItem = this.queue.shift();
+
+                // Skip if post is too old (older than 5 minutes)
+                if (Date.now() - queueItem.timestamp > 300000) {
+                    continue;
+                }
+
+                try {
+                    await queueItem.processor(queueItem.postElement);
+                } catch (error) {
+                    console.warn('LinkedIn Post Saver: Error processing queued post:', error);
+                }
+            }
+
+            // Continue processing if queue still has items
+            if (this.queue.length > 0) {
+                setTimeout(processQueue, 3000);
+            } else {
+                this.isProcessingQueue = false;
+            }
+        };
+
+        setTimeout(processQueue, 3000);
     }
 
     getStatus() {
@@ -39,14 +100,10 @@ class RateLimiter {
             maxRequests: this.maxRequests,
             timeWindow: this.windowMs / 1000,
             canProceed: this.requests.length < this.maxRequests,
+            queueLength: this.queue.length,
             nextAvailableSlot: this.requests.length > 0 ?
                 new Date(this.requests[0] + this.windowMs) : new Date()
         };
-    }
-
-    // Method to check if we should process a post (separate from rate limiting)
-    shouldProcess(postId, processedPosts) {
-        return !processedPosts.has(postId);
     }
 }
 
@@ -61,12 +118,12 @@ class LinkedInPostSaver {
         this.lastProcessTime = 0;
         this.processThrottleMs = 1000;
 
-        // Rate limiting for compliance - more reasonable limits
-        this.rateLimiter = new RateLimiter(10, 30000); // 10 posts per 30 seconds
+        // Smart rate limiting with queue system - more reasonable limits
+        this.rateLimiter = new SmartRateLimiter(20, 60000); // 20 posts per minute
 
         // Enhanced duplicate tracking
         this.lastProcessTime = 0;
-        this.processThrottleMs = 2000; // Increased to 2 seconds between processing batches
+        this.processThrottleMs = 1500; // Reduced to 1.5 seconds for better responsiveness
 
         // User consent status
         this.userConsent = false;
@@ -488,34 +545,36 @@ class LinkedInPostSaver {
                 return; // Can't process without a valid ID
             }
 
-            // Check if already processed (BEFORE rate limiting)
+            // Check if already processed (BEFORE any processing)
             if (this.processedPosts.has(postId)) {
-                return; // Already processed, don't waste rate limit
+                return; // Already processed, skip entirely
             }
 
-            // NOW check rate limit (only for new posts)
-            if (!this.rateLimiter.canProceed()) {
-                // Don't log for every post - rate limiter handles throttled logging
-                return;
-            }
+            // Use smart rate limiter with queue
+            await this.rateLimiter.processWithQueue(postElement, async (element) => {
+                // Double-check not processed while in queue
+                if (this.processedPosts.has(postId)) {
+                    return;
+                }
 
-            const postData = this.extractPostData(postElement);
-            if (!postData) {
-                console.log('LinkedIn Post Saver: No valid post data extracted for ID:', postId);
-                return;
-            }
+                const postData = this.extractPostData(element);
+                if (!postData) {
+                    console.log('LinkedIn Post Saver: No valid post data extracted for ID:', postId);
+                    return;
+                }
 
-            postData.id = postId;
-            postData.scrapedAt = new Date().toISOString();
-            postData.url = window.location.href;
+                postData.id = postId;
+                postData.scrapedAt = new Date().toISOString();
+                postData.url = window.location.href;
 
-            // Mark as processed BEFORE saving (to prevent duplicates)
-            this.processedPosts.add(postId);
+                // Mark as processed BEFORE saving (to prevent duplicates)
+                this.processedPosts.add(postId);
 
-            // Send to background script for storage
-            await this.savePost(postData);
+                // Send to background script for storage
+                await this.savePost(postData);
 
-            console.log('LinkedIn Post Saver: Successfully processed post:', postData.title?.substring(0, 50) + '...');
+                console.log('LinkedIn Post Saver: Successfully processed post:', postData.title?.substring(0, 50) + '...');
+            });
 
         } catch (error) {
             console.error('LinkedIn Post Saver: Error processing individual post:', error);
@@ -803,29 +862,40 @@ class LinkedInPostSaver {
             right: 10px;
             background: rgba(0, 119, 181, 0.9);
             color: white;
-            padding: 6px 10px;
+            padding: 6px 12px;
             border-radius: 15px;
             font-size: 11px;
             z-index: 9999;
             font-family: Arial, sans-serif;
             pointer-events: none;
             transition: opacity 0.3s ease;
+            line-height: 1.3;
           `;
                 document.body.appendChild(indicator);
             }
 
             const status = this.rateLimiter.getStatus();
             const savedCount = this.processedPosts.size;
+            const queueInfo = status.queueLength > 0 ? ` | Queue: ${status.queueLength}` : '';
 
-            indicator.textContent = `📝 ${savedCount} saved | ${status.currentRequests}/${status.maxRequests} rate`;
+            indicator.textContent = `📝 ${savedCount} saved | ${status.currentRequests}/${status.maxRequests}/min${queueInfo}`;
             indicator.style.opacity = '1';
 
-            // Fade out after 2 seconds
+            // Change color based on queue status
+            if (status.queueLength > 10) {
+                indicator.style.background = 'rgba(255, 152, 0, 0.9)'; // Orange for high queue
+            } else if (status.queueLength > 0) {
+                indicator.style.background = 'rgba(255, 193, 7, 0.9)'; // Yellow for queue
+            } else {
+                indicator.style.background = 'rgba(0, 119, 181, 0.9)'; // Blue for normal
+            }
+
+            // Fade out after 3 seconds
             setTimeout(() => {
                 if (indicator && indicator.parentNode) {
                     indicator.style.opacity = '0.3';
                 }
-            }, 2000);
+            }, 3000);
         } catch (error) {
             console.warn('LinkedIn Post Saver: Error updating status indicator:', error);
         }

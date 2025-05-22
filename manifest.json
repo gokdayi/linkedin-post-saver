@@ -7,7 +7,8 @@
     "permissions": [
       "storage",
       "activeTab",
-      "scripting"
+      "scripting",
+      "tabs"
     ],
     
     "host_permissions": [
@@ -33,9 +34,14 @@
     },
     
     "web_accessible_resources": [
-      {
-        "resources": ["injected.js"],
-        "matches": ["https://www.linkedin.com/*"]
-      }
-    ]
+    {
+      "resources": [
+        "consent-dialog.html",
+        "consent-dialog.css", 
+        "consent-dialog.js",
+        "injected.js"
+      ],
+      "matches": ["https://www.linkedin.com/*"]
+    }
+  ]
 }

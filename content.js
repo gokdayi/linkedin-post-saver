@@ -343,7 +343,7 @@ class DataSanitizer {
         // Even more lenient content validation
         // Accept ANY meaningful content rather than requiring multiple fields
         let hasContent = false;
-        
+
         // Check if post has ANY of these fields with content
         if (data.title && data.title.trim().length > 0) {
             hasContent = true;
@@ -354,7 +354,7 @@ class DataSanitizer {
         } else if (data.postUrl && data.postUrl.trim().length > 0) {
             hasContent = true;
         }
-        
+
         if (!hasContent) {
             console.warn('LinkedIn Post Saver: No meaningful content to save');
             return false;
@@ -894,25 +894,61 @@ class LinkedInPostSaver {
     }
 
     findVisiblePosts() {
-        // LinkedIn post selectors - these target the main post containers
+        // Updated LinkedIn post selectors based on current HTML structure
         const postSelectors = [
-            '[data-chameleon-result-urn]',               // Primary post container
-            '.feed-shared-update-v2',                    // Update posts
-            '.occludable-update',                        // Occludable posts
-            '[data-urn*="urn:li:activity"]',            // Activity posts
-            '.feed-shared-article',                      // Article posts
-            '.feed-shared-video'                         // Video posts
+            // Main post containers with URN data
+            '[data-urn*="urn:li:activity:"]',
+            '[data-id*="urn:li:activity:"]',
+
+            // Alternative containers
+            '.feed-shared-update-v2[data-urn]',
+            '.occludable-update',
+
+            // Legacy selectors (fallback)
+            '.feed-shared-update-v2',
+            '.update-components-actor'
         ];
 
         let allPosts = [];
 
         postSelectors.forEach(selector => {
-            const posts = Array.from(document.querySelectorAll(selector));
-            allPosts = allPosts.concat(posts);
+            try {
+                const posts = Array.from(document.querySelectorAll(selector));
+                // Filter to ensure we have actual post containers, not just any element with URN
+                const validPosts = posts.filter(post => {
+                    // Must have author info or be a main post container
+                    return post.querySelector('.update-components-actor') ||
+                        post.classList.contains('feed-shared-update-v2') ||
+                        post.classList.contains('occludable-update');
+                });
+                allPosts = allPosts.concat(validPosts);
+            } catch (error) {
+                console.warn('LinkedIn Post Saver: Error with selector:', selector, error);
+            }
         });
 
-        // Remove duplicates and filter for visible posts
-        const uniquePosts = Array.from(new Set(allPosts));
+        // Remove duplicates based on URN or position
+        const uniquePosts = [];
+        const seenUrns = new Set();
+
+        allPosts.forEach(post => {
+            const urn = post.getAttribute('data-urn') ||
+                post.getAttribute('data-id') ||
+                post.querySelector('[data-urn]')?.getAttribute('data-urn');
+
+            if (urn && !seenUrns.has(urn)) {
+                seenUrns.add(urn);
+                uniquePosts.push(post);
+            } else if (!urn) {
+                // For posts without URN, check if it's not a duplicate by position
+                const isUnique = !uniquePosts.some(existingPost =>
+                    existingPost.getBoundingClientRect().top === post.getBoundingClientRect().top
+                );
+                if (isUnique) {
+                    uniquePosts.push(post);
+                }
+            }
+        });
 
         return uniquePosts.filter(post => {
             return this.isElementVisible(post) && !this.isPostProcessed(post);
@@ -958,30 +994,55 @@ class LinkedInPostSaver {
     }
 
     extractPostId(postElement) {
-        // Try multiple methods to get a unique identifier
-        let postId = null;
+        // Method 1: Direct URN from element attributes
+        let postId = postElement.getAttribute('data-urn') ||
+            postElement.getAttribute('data-id');
 
-        // Method 1: data-chameleon-result-urn
-        postId = postElement.getAttribute('data-chameleon-result-urn');
-        if (postId) return postId;
+        if (postId && postId.includes('urn:li:activity:')) {
+            return postId;
+        }
 
-        // Method 2: data-urn
-        postId = postElement.getAttribute('data-urn');
-        if (postId) return postId;
+        // Method 2: Look for URN in child elements  
+        const urnSelectors = [
+            '[data-urn*="urn:li:activity:"]',
+            '[data-id*="urn:li:activity:"]'
+        ];
 
-        // Method 3: Look for URN in child elements
-        const urnElement = postElement.querySelector('[data-urn]');
-        if (urnElement) {
-            postId = urnElement.getAttribute('data-urn');
-            if (postId) return postId;
+        for (const selector of urnSelectors) {
+            const urnElement = postElement.querySelector(selector);
+            if (urnElement) {
+                postId = urnElement.getAttribute('data-urn') ||
+                    urnElement.getAttribute('data-id');
+                if (postId && postId.includes('urn:li:activity:')) {
+                    return postId;
+                }
+            }
+        }
+
+        // Method 3: Look in parent elements (in case we're processing a sub-element)
+        let currentElement = postElement.parentElement;
+        for (let i = 0; i < 3; i++) {
+            if (currentElement && currentElement.getAttribute) {
+                postId = currentElement.getAttribute('data-urn') ||
+                    currentElement.getAttribute('data-id');
+
+                if (postId && postId.includes('urn:li:activity:')) {
+                    return postId;
+                }
+            }
+            currentElement = currentElement?.parentElement;
+            if (!currentElement) break;
         }
 
         // Method 4: Generate hash based on content (fallback)
         const textContent = postElement.textContent?.trim();
-        if (textContent && textContent.length > 10) {
-            return 'hash_' + this.generateSimpleHash(textContent.substring(0, 100));
+        if (textContent && textContent.length > 50) {
+            // Use more content for better uniqueness
+            const hashContent = textContent.substring(0, 200);
+            return 'content_hash_' + this.generateSimpleHash(hashContent);
         }
 
+        console.warn('LinkedIn Post Saver: Could not extract post ID for element');
         return null;
     }
 
@@ -1004,13 +1065,16 @@ class LinkedInPostSaver {
 
             const postId = this.extractPostId(postElement);
             if (!postId) {
-                return; // Can't process without a valid ID
+                console.log('LinkedIn Post Saver: No valid post ID found, skipping post');
+                return;
             }
 
-            // Check if already processed (BEFORE any processing)
+            // Check if already processed
             if (this.processedPosts.has(postId)) {
-                return; // Already processed, skip entirely
+                return;
             }
+
+            console.log('LinkedIn Post Saver: Processing post with ID:', postId);
 
             // Use smart rate limiter with queue
             await this.rateLimiter.processWithQueue(postElement, async (element) => {
@@ -1019,30 +1083,48 @@ class LinkedInPostSaver {
                     return;
                 }
 
-                const postData = this.extractPostData(element);
-                if (!postData) {
-                    console.log('LinkedIn Post Saver: No valid post data extracted for ID:', postId);
-                    return;
+                try {
+                    const postData = this.extractPostData(element);
+                    if (!postData) {
+                        console.log('LinkedIn Post Saver: No valid post data extracted for ID:', postId);
+                        return;
+                    }
+
+                    // Ensure we have at least some content to save
+                    if (!postData.author?.name && !postData.text && !postData.title) {
+                        console.log('LinkedIn Post Saver: Post has no meaningful content, skipping:', postId);
+                        return;
+                    }
+
+                    postData.id = postId;
+                    postData.scrapedAt = new Date().toISOString();
+                    postData.url = window.location.href;
+
+                    // SANITIZE DATA BEFORE SAVING
+                    const sanitizedData = this.sanitizer.sanitizePostData(postData);
+                    if (!sanitizedData || !this.sanitizer.validateSanitizedData(sanitizedData)) {
+                        console.warn('LinkedIn Post Saver: Post data failed sanitization, skipping save');
+                        return;
+                    }
+
+                    // Mark as processed BEFORE saving
+                    this.processedPosts.add(postId);
+
+                    // Send sanitized data to background script for storage
+                    await this.savePost(sanitizedData);
+
+                    console.log('LinkedIn Post Saver: Successfully processed post:', {
+                        id: postId,
+                        author: sanitizedData.author?.name || 'Unknown',
+                        hasText: !!sanitizedData.text,
+                        hasUrl: !!sanitizedData.postUrl
+                    });
+
+                } catch (processingError) {
+                    console.error('LinkedIn Post Saver: Error in post processing queue:', processingError);
+                    // Don't mark as processed if there was an error
+                    this.processedPosts.delete(postId);
                 }
-
-                postData.id = postId;
-                postData.scrapedAt = new Date().toISOString();
-                postData.url = window.location.href;
-
-                // SANITIZE DATA BEFORE SAVING
-                const sanitizedData = this.sanitizer.sanitizePostData(postData);
-                if (!sanitizedData || !this.sanitizer.validateSanitizedData(sanitizedData)) {
-                    console.warn('LinkedIn Post Saver: Post data failed sanitization, skipping save');
-                    return;
-                }
-
-                // Mark as processed BEFORE saving (to prevent duplicates)
-                this.processedPosts.add(postId);
-
-                // Send sanitized data to background script for storage
-                await this.savePost(sanitizedData);
-
-                console.log('LinkedIn Post Saver: Successfully processed and sanitized post:', sanitizedData.title?.substring(0, 50) + '...');
             });
 
         } catch (error) {
@@ -1086,88 +1168,293 @@ class LinkedInPostSaver {
     extractAuthorInfo(postElement) {
         const author = {};
 
-        // Author name
+        // ENHANCED AUTHOR NAME EXTRACTION - handles both personal profiles and companies
         const nameSelectors = [
-            '.feed-shared-actor__name a',
-            '.feed-shared-actor__name',
-            '[data-chameleon-result-urn] a[href*="/in/"]',
-            '.update-components-actor__name'
+            // Method 1: Deep nested spans (most reliable for new structure)
+            '.update-components-actor__title span span span',
+            '.update-components-actor__title .visually-hidden span',
+            '.update-components-actor__title span[aria-hidden="true"] span',
+
+            // Method 2: Company/page structure 
+            '.update-components-actor__title span[dir="ltr"] span[aria-hidden="true"] span',
+            '.update-components-actor__title span[dir="ltr"] .visually-hidden span',
+
+            // Method 3: Alternative nested structures
+            '.update-components-actor__title span[dir="ltr"] span[aria-hidden="true"]',
+            '.update-components-actor__title span[dir="ltr"] .visually-hidden',
+
+            // Method 4: Fallback to direct spans
+            '.update-components-actor__title span[aria-hidden="true"]',
+            '.update-components-actor__title .visually-hidden',
+
+            // Method 5: Final fallbacks
+            '.update-components-actor__title',
+            '.update-components-actor__meta-link'
         ];
 
         for (const selector of nameSelectors) {
-            const nameElement = postElement.querySelector(selector);
-            if (nameElement) {
-                author.name = nameElement.textContent?.trim();
-                author.profileUrl = nameElement.href;
-                break;
+            try {
+                const nameElement = postElement.querySelector(selector);
+                if (nameElement && nameElement.textContent?.trim()) {
+                    let nameText = nameElement.textContent.trim();
+
+                    // Clean up the name text thoroughly
+                    nameText = nameText
+                        .replace(/<!---->/g, '')  // Remove HTML comments
+                        .replace(/\s+/g, ' ')     // Normalize whitespace
+                        .trim();
+
+                    // Skip invalid names
+                    if (nameText &&
+                        nameText.length > 1 &&
+                        nameText.length < 100 &&  // Reasonable length check
+                        !nameText.includes('LinkedIn Member') &&
+                        !nameText.includes('Promoted') &&
+                        !nameText.includes('followers') &&
+                        !nameText.includes('•') &&
+                        !nameText.match(/^\d+[smhd]/) && // Skip time strings
+                        nameText !== ' ') {
+
+                        author.name = nameText;
+                        console.log('LinkedIn Post Saver: Found author name:', nameText, 'using selector:', selector);
+                        break;
+                    }
+                }
+            } catch (error) {
+                console.warn('LinkedIn Post Saver: Error with name selector:', selector, error);
             }
         }
 
-        // Author title/headline
+        // ENHANCED PROFILE URL EXTRACTION
+        const profileSelectors = [
+            '.update-components-actor__meta-link',
+            '.update-components-actor__image',
+            'a[href*="/in/"]',
+            'a[href*="/company/"]'
+        ];
+
+        for (const selector of profileSelectors) {
+            try {
+                const linkElement = postElement.querySelector(selector);
+                if (linkElement && linkElement.href) {
+                    let profileUrl = linkElement.href;
+
+                    // Clean LinkedIn profile URLs - remove tracking parameters
+                    if (profileUrl.includes('/in/') || profileUrl.includes('/company/')) {
+                        profileUrl = profileUrl.split('?')[0]; // Remove query parameters
+                        author.profileUrl = profileUrl;
+                        break;
+                    }
+                }
+            } catch (error) {
+                console.warn('LinkedIn Post Saver: Error with profile selector:', selector, error);
+            }
+        }
+
+        // ENHANCED DESCRIPTION/TITLE EXTRACTION
         const titleSelectors = [
-            '.feed-shared-actor__description',
+            '.update-components-actor__description span[aria-hidden="true"]',
+            '.update-components-actor__description .visually-hidden',
             '.update-components-actor__description'
         ];
 
         for (const selector of titleSelectors) {
-            const titleElement = postElement.querySelector(selector);
-            if (titleElement) {
-                author.title = titleElement.textContent?.trim();
-                break;
+            try {
+                const titleElement = postElement.querySelector(selector);
+                if (titleElement && titleElement.textContent?.trim()) {
+                    let titleText = titleElement.textContent.trim();
+                    titleText = titleText
+                        .replace(/<!---->/g, '')
+                        .replace(/\s+/g, ' ')
+                        .trim();
+
+                    // Skip follower counts, time info, and other meta data
+                    if (titleText &&
+                        titleText.length > 3 &&
+                        titleText.length < 200 &&
+                        !titleText.match(/^\d+,?\d*\s*(followers?|following)/i) &&
+                        !titleText.includes('•') &&
+                        !titleText.includes('ago') &&
+                        !titleText.includes('Promoted')) {
+
+                        author.title = titleText;
+                        break;
+                    }
+                }
+            } catch (error) {
+                console.warn('LinkedIn Post Saver: Error with title selector:', selector, error);
             }
         }
 
-        // Author avatar
+        // ENHANCED AVATAR EXTRACTION
         const avatarSelectors = [
-            '.feed-shared-actor__avatar img',
-            '.update-components-actor__avatar img'
+            '.update-components-actor__avatar-image',
+            '.update-components-actor__avatar img',
+            '.ivm-view-attr__img--centered',
+            '.EntityPhoto-circle-3',
+            '.EntityPhoto-square-3'
         ];
 
         for (const selector of avatarSelectors) {
-            const avatarElement = postElement.querySelector(selector);
-            if (avatarElement) {
-                author.avatar = avatarElement.src;
-                break;
+            try {
+                const avatarElement = postElement.querySelector(selector);
+                if (avatarElement && avatarElement.src) {
+                    const avatarSrc = avatarElement.src;
+                    if (avatarSrc &&
+                        !avatarSrc.includes('data:image') &&
+                        avatarSrc.startsWith('http') &&
+                        avatarSrc.includes('licdn.com')) {
+
+                        author.avatar = avatarSrc;
+                        break;
+                    }
+                }
+            } catch (error) {
+                console.warn('LinkedIn Post Saver: Error with avatar selector:', selector, error);
             }
         }
+
+        console.log('LinkedIn Post Saver: Author extraction result:', {
+            name: author.name || 'NOT_FOUND',
+            title: author.title || 'NOT_FOUND',
+            profileUrl: author.profileUrl ? 'FOUND' : 'NOT_FOUND',
+            avatar: author.avatar ? 'FOUND' : 'NOT_FOUND'
+        });
 
         return author;
     }
 
+
     extractPostContent(postElement) {
         const content = {};
 
-        // Post text content
+        // ENHANCED POST TEXT EXTRACTION - handles multiple structures
         const textSelectors = [
+            // Primary text selectors
+            '.update-components-text .break-words span[dir="ltr"]',
+            '.update-components-text .break-words',
+            '.update-components-text span[dir="ltr"]',
+            '.update-components-text',
+
+            // Alternative structures
+            '.feed-shared-text .break-words span[dir="ltr"]',
+            '.feed-shared-text .break-words',
             '.feed-shared-text',
+
+            // Fallback selectors
+            '.feed-shared-update-v2__description .break-words',
             '.feed-shared-update-v2__description',
-            '.update-components-text'
+            '.update-components-update-v2__commentary'
         ];
 
         for (const selector of textSelectors) {
-            const textElement = postElement.querySelector(selector);
-            if (textElement) {
-                content.text = textElement.textContent?.trim();
-                // Use first sentence or first 100 chars as title
-                content.title = this.generateTitle(content.text);
-                break;
+            try {
+                const textElement = postElement.querySelector(selector);
+                if (textElement && textElement.textContent?.trim()) {
+                    let textContent = textElement.textContent.trim();
+
+                    // Clean up text content
+                    textContent = textContent
+                        .replace(/<!---->/g, '')  // Remove HTML comments
+                        .replace(/\s+/g, ' ')     // Normalize whitespace
+                        .trim();
+
+                    if (textContent && textContent.length > 10) { // Minimum meaningful length
+                        content.text = textContent;
+                        content.title = this.generateTitle(textContent);
+                        console.log('LinkedIn Post Saver: Found post text:', textContent.substring(0, 100) + '...');
+                        break;
+                    }
+                }
+            } catch (error) {
+                console.warn('LinkedIn Post Saver: Error with text selector:', selector, error);
             }
         }
 
-        // Timestamp
+        // ENHANCED TIMESTAMP EXTRACTION
         const timeSelectors = [
-            '.feed-shared-actor__sub-description time',
-            '.update-components-actor__sub-description time',
+            '.update-components-actor__sub-description span[aria-hidden="true"]',
+            '.update-components-actor__sub-description .visually-hidden',
+            '.update-components-actor__sub-description',
+            '.feed-shared-actor__sub-description time[datetime]',
+            '.update-components-actor__sub-description time[datetime]',
             'time[datetime]'
         ];
 
         for (const selector of timeSelectors) {
-            const timeElement = postElement.querySelector(selector);
-            if (timeElement) {
-                content.timestamp = timeElement.getAttribute('datetime') || timeElement.textContent?.trim();
-                break;
+            try {
+                const timeElement = postElement.querySelector(selector);
+                if (timeElement) {
+                    // Try datetime attribute first
+                    let timestamp = timeElement.getAttribute('datetime');
+
+                    if (!timestamp && timeElement.textContent) {
+                        const timeText = timeElement.textContent.trim();
+
+                        // Parse relative time strings like "2d", "4h", "1w"
+                        const timeMatch = timeText.match(/(\d+)([smhdw])\s*(?:•|ago)?/);
+                        if (timeMatch) {
+                            const amount = parseInt(timeMatch[1]);
+                            const unit = timeMatch[2];
+                            const now = new Date();
+
+                            switch (unit) {
+                                case 's': now.setSeconds(now.getSeconds() - amount); break;
+                                case 'm': now.setMinutes(now.getMinutes() - amount); break;
+                                case 'h': now.setHours(now.getHours() - amount); break;
+                                case 'd': now.setDate(now.getDate() - amount); break;
+                                case 'w': now.setDate(now.getDate() - (amount * 7)); break;
+                            }
+
+                            timestamp = now.toISOString();
+                            console.log('LinkedIn Post Saver: Parsed timestamp:', timestamp, 'from text:', timeText);
+                        }
+                    }
+
+                    if (timestamp) {
+                        content.timestamp = timestamp;
+                        break;
+                    }
+                }
+            } catch (error) {
+                console.warn('LinkedIn Post Saver: Error with timestamp selector:', selector, error);
             }
         }
+
+        // If no content found, try to extract from article links or other content
+        if (!content.text) {
+            const articleSelectors = [
+                '.update-components-article__title',
+                '.update-components-article__meta',
+                'article .update-components-article__title'
+            ];
+
+            for (const selector of articleSelectors) {
+                try {
+                    const articleElement = postElement.querySelector(selector);
+                    if (articleElement && articleElement.textContent?.trim()) {
+                        let articleText = articleElement.textContent.trim();
+                        articleText = articleText.replace(/<!---->/g, '').replace(/\s+/g, ' ').trim();
+
+                        if (articleText && articleText.length > 10) {
+                            content.text = articleText;
+                            content.title = this.generateTitle(articleText);
+                            console.log('LinkedIn Post Saver: Found article content:', articleText.substring(0, 100) + '...');
+                            break;
+                        }
+                    }
+                } catch (error) {
+                    console.warn('LinkedIn Post Saver: Error with article selector:', selector, error);
+                }
+            }
+        }
+
+        console.log('LinkedIn Post Saver: Content extraction result:', {
+            hasText: !!content.text,
+            textLength: content.text?.length || 0,
+            hasTitle: !!content.title,
+            hasTimestamp: !!content.timestamp
+        });
 
         return content;
     }
@@ -1233,23 +1520,111 @@ class LinkedInPostSaver {
     extractEngagementData(postElement) {
         const engagement = {};
 
-        // Likes, comments, shares
-        const engagementSelectors = [
-            '.social-actions-button',
-            '.feed-shared-social-action-bar'
-        ];
+        try {
+            // Look for social counts section
+            const socialCountsSelectors = [
+                '.social-details-social-counts',
+                '.update-v2-social-activity',
+                '.feed-shared-social-action-bar'
+            ];
 
-        const engagementElement = postElement.querySelector(engagementSelectors.join(', '));
-        if (engagementElement) {
-            const likeButton = engagementElement.querySelector('[aria-label*="like"], [aria-label*="Like"]');
-            const commentButton = engagementElement.querySelector('[aria-label*="comment"], [aria-label*="Comment"]');
-            const shareButton = engagementElement.querySelector('[aria-label*="share"], [aria-label*="Share"]');
+            let socialSection = null;
+            for (const selector of socialCountsSelectors) {
+                socialSection = postElement.querySelector(selector);
+                if (socialSection) break;
+            }
 
-            if (likeButton) engagement.likes = this.extractEngagementCount(likeButton);
-            if (commentButton) engagement.comments = this.extractEngagementCount(commentButton);
-            if (shareButton) engagement.shares = this.extractEngagementCount(shareButton);
+            if (!socialSection) {
+                console.log('LinkedIn Post Saver: No social engagement section found');
+                return engagement;
+            }
+
+            // Extract likes/reactions
+            const reactionSelectors = [
+                '.social-details-social-counts__reactions-count',
+                '[aria-label*="reactions"] span[aria-hidden="true"]',
+                'button[aria-label*="reactions"]'
+            ];
+
+            for (const selector of reactionSelectors) {
+                try {
+                    const reactionElement = socialSection.querySelector(selector);
+                    if (reactionElement) {
+                        let reactionText = reactionElement.textContent?.trim() ||
+                            reactionElement.getAttribute('aria-label');
+
+                        if (reactionText) {
+                            const reactionMatch = reactionText.match(/(\d+(?:,\d+)*)/);
+                            if (reactionMatch) {
+                                engagement.likes = parseInt(reactionMatch[1].replace(/,/g, ''));
+                                break;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn('LinkedIn Post Saver: Error parsing reactions:', error);
+                }
+            }
+
+            // Extract comments
+            const commentSelectors = [
+                'button[aria-label*="comments"]',
+                '.social-details-social-counts__comments button',
+                '[aria-label*="comment"]'
+            ];
+
+            for (const selector of commentSelectors) {
+                try {
+                    const commentElement = socialSection.querySelector(selector);
+                    if (commentElement) {
+                        let commentText = commentElement.textContent?.trim() ||
+                            commentElement.getAttribute('aria-label');
+
+                        if (commentText) {
+                            const commentMatch = commentText.match(/(\d+(?:,\d+)*)\s*comments?/i);
+                            if (commentMatch) {
+                                engagement.comments = parseInt(commentMatch[1].replace(/,/g, ''));
+                                break;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn('LinkedIn Post Saver: Error parsing comments:', error);
+                }
+            }
+
+            // Extract reposts/shares
+            const shareSelectors = [
+                'button[aria-label*="reposts"]',
+                '[aria-label*="repost"]',
+                '.social-details-social-counts button[aria-label*="repost"]'
+            ];
+
+            for (const selector of shareSelectors) {
+                try {
+                    const shareElement = socialSection.querySelector(selector);
+                    if (shareElement) {
+                        let shareText = shareElement.textContent?.trim() ||
+                            shareElement.getAttribute('aria-label');
+
+                        if (shareText) {
+                            const shareMatch = shareText.match(/(\d+(?:,\d+)*)\s*reposts?/i);
+                            if (shareMatch) {
+                                engagement.shares = parseInt(shareMatch[1].replace(/,/g, ''));
+                                break;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    console.warn('LinkedIn Post Saver: Error parsing shares:', error);
+                }
+            }
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error in engagement data extraction:', error);
         }
 
+        console.log('LinkedIn Post Saver: Engagement extraction result:', engagement);
         return engagement;
     }
 
@@ -1265,20 +1640,98 @@ class LinkedInPostSaver {
     }
 
     extractPostUrl(postElement) {
-        // Look for permalink or timestamp link
-        const linkSelectors = [
-            'a[href*="/posts/"]',
-            'a[href*="/activity-"]',
-            '.feed-shared-actor__sub-description a'
+        // Method 1: Look for URN in data attributes and construct URL
+        const urnSelectors = [
+            '[data-urn*="urn:li:activity:"]',
+            '[data-id*="urn:li:activity:"]'
         ];
 
-        for (const selector of linkSelectors) {
-            const linkElement = postElement.querySelector(selector);
-            if (linkElement && linkElement.href) {
-                return linkElement.href;
+        for (const selector of urnSelectors) {
+            const urnElement = postElement.querySelector(selector);
+            if (urnElement) {
+                let urn = urnElement.getAttribute('data-urn') ||
+                    urnElement.getAttribute('data-id');
+
+                if (urn && urn.includes('urn:li:activity:')) {
+                    // Extract activity ID from URN
+                    const activityMatch = urn.match(/urn:li:activity:(\d+)/);
+                    if (activityMatch && activityMatch[1]) {
+                        const activityId = activityMatch[1];
+                        const constructedUrl = `https://www.linkedin.com/feed/update/urn:li:activity:${activityId}/`;
+                        console.log('LinkedIn Post Saver: Constructed post URL from URN:', constructedUrl);
+                        return constructedUrl;
+                    }
+                }
             }
         }
 
+        // Method 2: Look for any timestamp or date links in sub-description
+        const timestampSelectors = [
+            '.update-components-actor__sub-description a',
+            '.feed-shared-actor__sub-description a',
+            'time a',
+            '[aria-label*="ago"] a'
+        ];
+
+        for (const selector of timestampSelectors) {
+            const linkElement = postElement.querySelector(selector);
+            if (linkElement && linkElement.href) {
+                const href = linkElement.href;
+
+                // Check if it's a LinkedIn post URL
+                if (href.includes('linkedin.com') &&
+                    (href.includes('/posts/') ||
+                        href.includes('/feed/update/') ||
+                        href.includes('/activity-'))) {
+
+                    console.log('LinkedIn Post Saver: Found post URL via timestamp:', href);
+                    return href;
+                }
+            }
+        }
+
+        // Method 3: Look in the broader post container for any post links
+        const postLinkSelectors = [
+            'a[href*="/posts/"]',
+            'a[href*="/feed/update/"]',
+            'a[href*="/activity-"]'
+        ];
+
+        for (const selector of postLinkSelectors) {
+            const linkElement = postElement.querySelector(selector);
+            if (linkElement && linkElement.href) {
+                const href = linkElement.href;
+                if (href.includes('linkedin.com')) {
+                    console.log('LinkedIn Post Saver: Found post URL via link search:', href);
+                    return href;
+                }
+            }
+        }
+
+        console.log('LinkedIn Post Saver: Could not find post URL - will try to construct from outer container');
+
+        // Method 4: If we're inside a post container, try to get URN from parent
+        let currentElement = postElement;
+        for (let i = 0; i < 5; i++) { // Look up 5 levels max
+            if (currentElement.getAttribute) {
+                const urn = currentElement.getAttribute('data-urn') ||
+                    currentElement.getAttribute('data-id');
+
+                if (urn && urn.includes('urn:li:activity:')) {
+                    const activityMatch = urn.match(/urn:li:activity:(\d+)/);
+                    if (activityMatch && activityMatch[1]) {
+                        const constructedUrl = `https://www.linkedin.com/feed/update/urn:li:activity:${activityMatch[1]}/`;
+                        console.log('LinkedIn Post Saver: Constructed post URL from parent URN:', constructedUrl);
+                        return constructedUrl;
+                    }
+                }
+            }
+
+            currentElement = currentElement.parentElement;
+            if (!currentElement) break;
+        }
+
+        console.log('LinkedIn Post Saver: No post URL found');
         return null;
     }
 

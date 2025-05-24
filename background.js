@@ -3,11 +3,529 @@
  * Handles data storage and communication between content script and popup
  */
 
+/**
+ * Storage Quota Management Enhancement for background.js
+ * Add these methods to your LinkedInPostStorage class
+ */
+
+class StorageQuotaManager {
+    constructor() {
+        this.QUOTA_WARNING_THRESHOLD = 0.8; // Warn at 80% usage
+        this.QUOTA_CRITICAL_THRESHOLD = 0.95; // Critical at 95% usage
+        this.MAX_STORAGE_BYTES = 10 * 1024 * 1024; // 10MB theoretical max (Chrome local storage)
+        this.CLEANUP_BATCH_SIZE = 50; // Delete this many posts when cleaning up
+        this.storageKey = 'linkedinPosts';
+        this.settingsKey = 'linkedinPostsSettings';
+        this.quotaKey = 'linkedinStorageQuota';
+    }
+
+    /**
+     * Check current storage usage and quota status
+     */
+    async checkStorageQuota() {
+        try {
+            // Get current storage usage
+            const storageInfo = await this.getStorageInfo();
+
+            // Update quota tracking
+            await this.updateQuotaTracking(storageInfo);
+
+            // Check if we need to take action
+            if (storageInfo.percentUsed >= this.QUOTA_CRITICAL_THRESHOLD) {
+                console.warn('LinkedIn Post Saver: Critical storage usage detected:', storageInfo);
+                await this.handleCriticalStorage();
+                return { status: 'critical', info: storageInfo };
+            } else if (storageInfo.percentUsed >= this.QUOTA_WARNING_THRESHOLD) {
+                console.warn('LinkedIn Post Saver: High storage usage detected:', storageInfo);
+                await this.handleHighStorage();
+                return { status: 'warning', info: storageInfo };
+            }
+
+            return { status: 'ok', info: storageInfo };
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error checking storage quota:', error);
+            return { status: 'error', error: error.message };
+        }
+    }
+
+    /**
+     * Get detailed storage information
+     */
+    async getStorageInfo() {
+        try {
+            // Get all extension data
+            const allData = await chrome.storage.local.get(null);
+
+            // Calculate total size
+            const totalSize = this.calculateDataSize(allData);
+
+            // Get posts data specifically
+            const posts = allData[this.storageKey] || {};
+            const postsSize = this.calculateDataSize(posts);
+            const postCount = Object.keys(posts).length;
+
+            // Get quota estimate (Chrome doesn't provide exact quota)
+            const estimatedQuota = await this.estimateStorageQuota();
+
+            return {
+                totalSize,
+                postsSize,
+                postCount,
+                estimatedQuota,
+                percentUsed: totalSize / estimatedQuota,
+                formatted: {
+                    totalSize: this.formatBytes(totalSize),
+                    postsSize: this.formatBytes(postsSize),
+                    estimatedQuota: this.formatBytes(estimatedQuota),
+                    percentUsed: Math.round((totalSize / estimatedQuota) * 100) + '%'
+                }
+            };
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error getting storage info:', error);
+            throw error;
+        }
+    }
+
+    /**
+     * Estimate storage quota (Chrome doesn't provide exact quota)
+     */
+    async estimateStorageQuota() {
+        try {
+            // Try to use the newer Storage API if available
+            if ('storage' in navigator && 'estimate' in navigator.storage) {
+                const estimate = await navigator.storage.estimate();
+                if (estimate.quota) {
+                    // Use a conservative portion of total quota for our extension
+                    return Math.min(estimate.quota * 0.1, this.MAX_STORAGE_BYTES);
+                }
+            }
+
+            // Fallback to conservative estimate
+            return this.MAX_STORAGE_BYTES;
+
+        } catch (error) {
+            console.warn('LinkedIn Post Saver: Could not estimate quota, using fallback');
+            return this.MAX_STORAGE_BYTES;
+        }
+    }
+
+    /**
+     * Calculate size of data in bytes
+     */
+    calculateDataSize(data) {
+        try {
+            const jsonString = JSON.stringify(data);
+            return new Blob([jsonString]).size;
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error calculating data size:', error);
+            return 0;
+        }
+    }
+
+    /**
+     * Format bytes into human-readable string
+     */
+    formatBytes(bytes) {
+        if (bytes === 0) return '0 B';
+
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    }
+
+    /**
+     * Handle critical storage situation (>95% usage)
+     */
+    async handleCriticalStorage() {
+        try {
+            console.log('LinkedIn Post Saver: Handling critical storage situation');
+
+            // Force aggressive cleanup
+            await this.performAggressiveCleanup();
+
+            // Notify user if possible
+            await this.notifyStorageIssue('critical');
+
+            // Update settings to prevent further issues
+            await this.updateSettingsForLowStorage();
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error handling critical storage:', error);
+        }
+    }
+
+    /**
+     * Handle high storage situation (>80% usage)
+     */
+    async handleHighStorage() {
+        try {
+            console.log('LinkedIn Post Saver: Handling high storage situation');
+
+            // Perform moderate cleanup
+            await this.performModerateCleanup();
+
+            // Notify user
+            await this.notifyStorageIssue('warning');
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error handling high storage:', error);
+        }
+    }
+
+    /**
+     * Perform aggressive cleanup (critical storage)
+     */
+    async performAggressiveCleanup() {
+        try {
+            const result = await chrome.storage.local.get(this.storageKey);
+            const posts = result[this.storageKey] || {};
+            const postArray = Object.values(posts);
+
+            if (postArray.length === 0) return;
+
+            // Sort by date (oldest first)
+            postArray.sort((a, b) => new Date(a.savedAt) - new Date(b.savedAt));
+
+            // Remove oldest 30% of posts
+            const removeCount = Math.floor(postArray.length * 0.3);
+            const postsToRemove = postArray.slice(0, Math.max(removeCount, this.CLEANUP_BATCH_SIZE));
+
+            console.log(`LinkedIn Post Saver: Aggressive cleanup - removing ${postsToRemove.length} posts`);
+
+            // Remove posts
+            postsToRemove.forEach(post => {
+                delete posts[post.id];
+            });
+
+            // Save updated posts
+            await chrome.storage.local.set({
+                [this.storageKey]: posts
+            });
+
+            // Track cleanup event
+            await this.trackCleanupEvent('aggressive', postsToRemove.length);
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error in aggressive cleanup:', error);
+        }
+    }
+
+    /**
+     * Perform moderate cleanup (high storage)
+     */
+    async performModerateCleanup() {
+        try {
+            const settings = await this.getSettings();
+            const cleanupDays = settings.cleanupDays || 30;
+
+            const result = await chrome.storage.local.get(this.storageKey);
+            const posts = result[this.storageKey] || {};
+
+            // Clean up old posts
+            const cutoffDate = new Date();
+            cutoffDate.setDate(cutoffDate.getDate() - cleanupDays);
+
+            let removedCount = 0;
+            Object.keys(posts).forEach(postId => {
+                const post = posts[postId];
+                const savedDate = new Date(post.savedAt);
+
+                if (savedDate < cutoffDate) {
+                    delete posts[postId];
+                    removedCount++;
+                }
+            });
+
+            // If not enough removed, remove oldest posts
+            if (removedCount < this.CLEANUP_BATCH_SIZE) {
+                const postArray = Object.values(posts);
+                postArray.sort((a, b) => new Date(a.savedAt) - new Date(b.savedAt));
+
+                const additionalRemove = Math.min(
+                    this.CLEANUP_BATCH_SIZE - removedCount,
+                    postArray.length
+                );
+
+                for (let i = 0; i < additionalRemove; i++) {
+                    delete posts[postArray[i].id];
+                    removedCount++;
+                }
+            }
+
+            if (removedCount > 0) {
+                await chrome.storage.local.set({
+                    [this.storageKey]: posts
+                });
+
+                console.log(`LinkedIn Post Saver: Moderate cleanup - removed ${removedCount} posts`);
+                await this.trackCleanupEvent('moderate', removedCount);
+            }
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error in moderate cleanup:', error);
+        }
+    }
+
+    /**
+     * Update settings for low storage situations
+     */
+    async updateSettingsForLowStorage() {
+        try {
+            const settings = await this.getSettings();
+
+            // Reduce max posts if current setting is too high
+            if (settings.maxPosts > 500) {
+                settings.maxPosts = 500;
+            }
+
+            // Enable auto cleanup if not enabled
+            if (!settings.autoCleanup) {
+                settings.autoCleanup = true;
+            }
+
+            // Reduce cleanup days if too high
+            if (settings.cleanupDays > 14) {
+                settings.cleanupDays = 14;
+            }
+
+            // Disable video saving to save space
+            settings.saveVideos = false;
+
+            await this.updateSettings(settings);
+
+            console.log('LinkedIn Post Saver: Updated settings for low storage situation');
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error updating settings for low storage:', error);
+        }
+    }
+
+    /**
+     * Notify user of storage issues
+     */
+    async notifyStorageIssue(level) {
+        try {
+            const storageInfo = await this.getStorageInfo();
+
+            let title, message;
+
+            if (level === 'critical') {
+                title = 'LinkedIn Post Saver - Storage Critical';
+                message = `Storage critically low (${storageInfo.formatted.percentUsed}). Automatically cleaned up old posts.`;
+            } else {
+                title = 'LinkedIn Post Saver - Storage Warning';
+                message = `Storage usage high (${storageInfo.formatted.percentUsed}). Consider cleaning up old posts.`;
+            }
+
+            // Try to show notification
+            if (chrome.notifications) {
+                chrome.notifications.create({
+                    type: 'basic',
+                    iconUrl: 'icons/icon48.png',
+                    title: title,
+                    message: message
+                });
+            }
+
+            console.log(`LinkedIn Post Saver: ${title} - ${message}`);
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error showing storage notification:', error);
+        }
+    }
+
+    /**
+     * Update quota tracking data
+     */
+    async updateQuotaTracking(storageInfo) {
+        try {
+            const quotaData = {
+                lastCheck: new Date().toISOString(),
+                currentUsage: storageInfo.totalSize,
+                percentUsed: storageInfo.percentUsed,
+                postCount: storageInfo.postCount,
+                estimatedQuota: storageInfo.estimatedQuota
+            };
+
+            await chrome.storage.local.set({
+                [this.quotaKey]: quotaData
+            });
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error updating quota tracking:', error);
+        }
+    }
+
+    /**
+     * Track cleanup events for monitoring
+     */
+    async trackCleanupEvent(type, removedCount) {
+        try {
+            const eventData = {
+                type,
+                removedCount,
+                timestamp: new Date().toISOString()
+            };
+
+            // Use existing event tracking system
+            await this.trackEvent('storage_cleanup', eventData);
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error tracking cleanup event:', error);
+        }
+    }
+
+    /**
+     * Get storage settings (placeholder - replace with your existing method)
+     */
+    async getSettings() {
+        try {
+            const result = await chrome.storage.local.get(this.settingsKey);
+            return result[this.settingsKey] || {};
+        } catch (error) {
+            return {};
+        }
+    }
+
+    /**
+     * Update storage settings
+     */
+    async updateSettings(settings) {
+        try {
+            await chrome.storage.local.set({
+                [this.settingsKey]: settings
+            });
+        } catch (error) {
+            console.error('Error updating settings:', error);
+        }
+    }
+
+    /**
+     * Track events 
+     */
+    async trackEvent(eventName, eventData) {
+        try {
+            const eventLog = {
+                event: eventName,
+                timestamp: new Date().toISOString(),
+                data: eventData
+            };
+
+            const result = await chrome.storage.local.get('eventLog');
+            const events = result.eventLog || [];
+
+            events.unshift(eventLog);
+
+            if (events.length > 100) {
+                events.splice(100);
+            }
+
+            await chrome.storage.local.set({ eventLog: events });
+
+            console.log('LinkedIn Post Saver: Event tracked:', eventName);
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error tracking event:', error);
+        }
+    }
+
+    /**
+     * Monitor storage continuously
+     */
+    startStorageMonitoring() {
+        // Check storage every 5 minutes
+        setInterval(async () => {
+            await this.checkStorageQuota();
+        }, 5 * 60 * 1000);
+
+        console.log('LinkedIn Post Saver: Storage monitoring started');
+    }
+
+    /**
+     * Manual storage optimization
+     */
+    async optimizeStorage() {
+        try {
+            console.log('LinkedIn Post Saver: Starting manual storage optimization');
+
+            const result = await chrome.storage.local.get(this.storageKey);
+            const posts = result[this.storageKey] || {};
+
+            let optimizedCount = 0;
+
+            // Optimize each post
+            Object.keys(posts).forEach(postId => {
+                const originalPost = posts[postId];
+                const optimizedPost = this.optimizePostData(originalPost);
+
+                if (JSON.stringify(optimizedPost).length < JSON.stringify(originalPost).length) {
+                    posts[postId] = optimizedPost;
+                    optimizedCount++;
+                }
+            });
+
+            if (optimizedCount > 0) {
+                await chrome.storage.local.set({
+                    [this.storageKey]: posts
+                });
+
+                console.log(`LinkedIn Post Saver: Optimized ${optimizedCount} posts`);
+            }
+
+            return optimizedCount;
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error optimizing storage:', error);
+            return 0;
+        }
+    }
+
+    /**
+     * Optimize individual post data
+     */
+    optimizePostData(post) {
+        try {
+            const optimized = { ...post };
+
+            // Truncate very long text content
+            if (optimized.text && optimized.text.length > 5000) {
+                optimized.text = optimized.text.substring(0, 5000) + '... [truncated for storage]';
+            }
+
+            // Limit media items
+            if (optimized.media && optimized.media.length > 3) {
+                optimized.media = optimized.media.slice(0, 3);
+            }
+
+            // Remove unnecessary fields
+            delete optimized.__proto__;
+            delete optimized.constructor;
+
+            // Remove empty or undefined fields
+            Object.keys(optimized).forEach(key => {
+                if (optimized[key] === undefined || optimized[key] === null || optimized[key] === '') {
+                    delete optimized[key];
+                }
+            });
+
+            return optimized;
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error optimizing post data:', error);
+            return post;
+        }
+    }
+}
+
 class LinkedInPostStorage {
     constructor() {
         this.storageKey = 'linkedinPosts';
         this.settingsKey = 'linkedinPostsSettings';
         this.consentKey = 'linkedinPostsConsent';
+        this.quotaManager = new StorageQuotaManager();
         this.init();
     }
 
@@ -22,6 +540,9 @@ class LinkedInPostStorage {
 
         // Initialize default settings
         this.initializeSettings();
+
+        // Start storage monitoring
+        this.quotaManager.startStorageMonitoring();
     }
 
     async initializeSettings() {
@@ -53,7 +574,7 @@ class LinkedInPostStorage {
         try {
             switch (message.action) {
                 case 'savePost':
-                    await this.savePost(message.data);
+                    await this.savePostWithQuotaCheck(message.data);
                     sendResponse({ success: true });
                     break;
 
@@ -137,6 +658,26 @@ class LinkedInPostStorage {
                     sendResponse({ success: true, data: complianceStatus });
                     break;
 
+                case 'getStorageInfo':
+                    const storageInfo = await this.quotaManager.getStorageInfo();
+                    sendResponse({ success: true, data: storageInfo });
+                    break;
+
+                case 'optimizeStorage':
+                    const optimizedCount = await this.quotaManager.optimizeStorage();
+                    sendResponse({ success: true, data: { optimizedCount } });
+                    break;
+
+                case 'checkStorageQuota':
+                    const quotaStatus = await this.quotaManager.checkStorageQuota();
+                    sendResponse({ success: true, data: quotaStatus });
+                    break;
+
+                case 'forceStorageCleanup':
+                    await this.quotaManager.performModerateCleanup();
+                    sendResponse({ success: true });
+                    break;
+
                 default:
                     sendResponse({ success: false, error: 'Unknown action' });
             }
@@ -153,6 +694,15 @@ class LinkedInPostStorage {
             if (!consentData.hasConsent) {
                 console.log('LinkedIn Post Saver: Cannot save post - no user consent');
                 throw new Error('User consent required to save posts');
+            }
+
+            // Check storage quota before saving
+            const quotaStatus = await this.quotaManager.checkStorageQuota();
+
+            if (quotaStatus.status === 'critical') {
+                console.warn('LinkedIn Post Saver: Skipping save due to critical storage');
+                // Still try to save but with more aggressive optimization
+                postData = this.quotaManager.optimizePostData(postData);
             }
 
             // ADDITIONAL SANITIZATION CHECK (defense in depth)
@@ -189,6 +739,11 @@ class LinkedInPostStorage {
 
             console.log('LinkedIn Post Saver: Post saved successfully:', sanitizedData.title?.substring(0, 50));
 
+            // Check quota after saving if it was in warning state
+            if (quotaStatus.status === 'warning') {
+                await this.quotaManager.checkStorageQuota();
+            }
+
             // Show notification if enabled
             await this.showSaveNotification(sanitizedData);
 
@@ -197,6 +752,32 @@ class LinkedInPostStorage {
             throw error;
         }
     }
+
+    // Modify your savePost method to include quota checking:
+    async savePostWithQuotaCheck(postData) {
+        try {
+            // Check quota before saving
+            const quotaStatus = await this.quotaManager.checkStorageQuota();
+
+            if (quotaStatus.status === 'critical') {
+                console.warn('LinkedIn Post Saver: Skipping save due to critical storage');
+                return;
+            }
+
+            // Proceed with normal save
+            await this.savePost(postData);
+
+            // Check quota after saving if it was in warning state
+            if (quotaStatus.status === 'warning') {
+                await this.quotaManager.checkStorageQuota();
+            }
+
+        } catch (error) {
+            console.error('LinkedIn Post Saver: Error in savePostWithQuotaCheck:', error);
+            throw error;
+        }
+    }
+
 
     // Background sanitization (defense in depth) - MORE ROBUST
     sanitizeStorageData(data) {
@@ -229,7 +810,7 @@ class LinkedInPostStorage {
                     .replace(/javascript:/gi, 'blocked-js:')
                     .replace(/vbscript:/gi, 'blocked-vbs:')
                     .replace(/<script/gi, '<blocked-script');
-                
+
                 try {
                     // If sanitization worked, use the sanitized version
                     const resanitizedData = JSON.parse(sanitizedJson);
@@ -273,13 +854,13 @@ class LinkedInPostStorage {
 
         // Convert to string for checking
         const jsonString = JSON.stringify(obj);
-        
+
         // Check for high risk patterns - these are definite blocks
         if (highRiskPatterns.some(pattern => pattern.test(jsonString))) {
             console.warn('LinkedIn Post Saver: High risk content detected in post data');
             return true;
         }
-        
+
         // Less dangerous patterns - these are now just logged but not blocked
         // to prevent false positives while still monitoring security
         const monitorPatterns = [
@@ -288,12 +869,12 @@ class LinkedInPostStorage {
             /onerror/i,
             /onload/i
         ];
-        
+
         if (monitorPatterns.some(pattern => pattern.test(jsonString))) {
             console.info('LinkedIn Post Saver: Potentially risky content detected but allowed');
             // Not blocking these anymore, just monitoring
         }
-        
+
         return false; // Allow content unless high risk pattern matched
     }
 
@@ -341,6 +922,13 @@ class LinkedInPostStorage {
             // Auto cleanup if enabled
             if (settings.autoCleanup) {
                 await this.performCleanup(posts, settings.cleanupDays || 30);
+            }
+
+            // Check storage quota and perform additional cleanup if needed
+            const quotaStatus = await this.quotaManager.checkStorageQuota();
+            if (quotaStatus.status === 'critical') {
+                console.log('LinkedIn Post Saver: Performing emergency cleanup due to critical storage');
+                await this.quotaManager.handleCriticalStorage();
             }
 
         } catch (error) {
@@ -1145,14 +1733,67 @@ class LinkedInPostStorage {
 // Initialize the storage handler
 const linkedInPostStorage = new LinkedInPostStorage();
 
+// Register our alarm listener first - this should happen before any alarms are created
+setupStorageHealthCheck();
+
 // Handle extension installation/update
 chrome.runtime.onInstalled.addListener((details) => {
     if (details.reason === 'install') {
         console.log('LinkedIn Post Saver: Extension installed');
+
+        // Check initial storage status
+        if (linkedInPostStorage?.quotaManager) {
+            linkedInPostStorage.quotaManager.checkStorageQuota()
+                .then(status => console.log('Storage status on install:', status))
+                .catch(err => console.error('Error checking storage on install:', err));
+        }
+        
+        // Create the alarm when installed
+        createStorageHealthCheckAlarm();
     } else if (details.reason === 'update') {
         console.log('LinkedIn Post Saver: Extension updated');
+
+        // Check storage after update
+        if (linkedInPostStorage?.quotaManager) {
+            linkedInPostStorage.quotaManager.checkStorageQuota()
+                .then(status => console.log('Storage status on update:', status))
+                .catch(err => console.error('Error checking storage on update:', err));
+        }
+        
+        // Recreate the alarm when updated
+        createStorageHealthCheckAlarm();
     }
 });
+
+// Register alarm listener - following Chrome's recommended pattern
+function setupStorageHealthCheck() {
+  // Set up the alarm listener for storage health checks
+  chrome.alarms.onAlarm.addListener((alarm) => {
+    if (alarm.name === 'storageHealthCheck') {
+      console.log('Running storage health check...');
+      if (linkedInPostStorage?.quotaManager) {
+        linkedInPostStorage.quotaManager.checkStorageQuota()
+          .then(quotaStatus => {
+            if (quotaStatus.status !== 'ok') {
+              console.log('LinkedIn Post Saver: Storage health check - status:', quotaStatus.status);
+            }
+          })
+          .catch(error => {
+            console.error('LinkedIn Post Saver: Error in storage health check:', error);
+          });
+      }
+    }
+  });
+}
+
+// Create the alarm in the onInstalled handler
+function createStorageHealthCheckAlarm() {
+  chrome.alarms.create('storageHealthCheck', {
+    delayInMinutes: 30, // First check in 30 minutes
+    periodInMinutes: 60 // Then every hour
+  });
+  console.log('Storage health check alarm created');
+}
 
 // Handle tab updates to inject content script if needed
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
@@ -1165,3 +1806,5 @@ chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
         console.log('LinkedIn Post Saver: LinkedIn page loaded');
     }
 });
+
+// We now register the alarm and its listener in the onInstalled handler to avoid API timing issues

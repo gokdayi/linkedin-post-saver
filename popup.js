@@ -31,11 +31,16 @@ class PopupController {
         // Setup event listeners
         this.setupEventListeners();
 
+        this.initializeStorageSettings();
+
         // Load initial data
         await this.loadInitialData();
 
         // Setup tab navigation
         this.setupTabNavigation();
+
+        // Start storage monitoring
+        this.startStorageMonitoring();
 
         console.log('LinkedIn Post Saver Popup: Initialized successfully');
     }
@@ -185,6 +190,17 @@ class PopupController {
         document.getElementById('viewOpenSource')?.addEventListener('click', () => this.viewOpenSource());
         document.getElementById('reportCompliance')?.addEventListener('click', () => this.reportCompliance());
 
+        // Storage Management
+        document.getElementById('optimizeStorage')?.addEventListener('click', () => this.optimizeStorage());
+        document.getElementById('checkStorageQuota')?.addEventListener('click', () => this.checkStorageQuota());
+        document.getElementById('forceCleanup')?.addEventListener('click', () => this.forceCleanup());
+        document.getElementById('exportBeforeCleanup')?.addEventListener('click', () => this.exportBeforeCleanup());
+        document.getElementById('dismissStorageAlert')?.addEventListener('click', () => this.dismissStorageAlert());
+        document.getElementById('emergencyOptimize')?.addEventListener('click', () => this.emergencyOptimize());
+        document.getElementById('emergencyCleanup')?.addEventListener('click', () => this.emergencyCleanup());
+        document.getElementById('exportAndClear')?.addEventListener('click', () => this.exportAndClear());
+        document.getElementById('resetStorageSettings')?.addEventListener('click', () => this.resetStorageSettings());
+
         // Footer
         document.getElementById('openLinkedIn')?.addEventListener('click', () => this.openLinkedIn());
 
@@ -309,6 +325,16 @@ class PopupController {
         // Notification settings
         const enableNotifications = document.getElementById('enableNotifications');
         if (enableNotifications) enableNotifications.checked = this.settings.enableNotifications !== false;
+
+        // NEW: Storage management settings
+        const enableStorageOptimization = document.getElementById('enableStorageOptimization');
+        if (enableStorageOptimization) enableStorageOptimization.checked = this.settings.enableStorageOptimization !== false;
+
+        const storageWarningThreshold = document.getElementById('storageWarningThreshold');
+        if (storageWarningThreshold) storageWarningThreshold.value = this.settings.storageWarningThreshold || 80;
+
+        const enableStorageNotifications = document.getElementById('enableStorageNotifications');
+        if (enableStorageNotifications) enableStorageNotifications.checked = this.settings.enableStorageNotifications !== false;
     }
 
     async loadPosts(filters = {}) {
@@ -641,6 +667,9 @@ class PopupController {
 
             if (response.success) {
                 this.displayStats(response.data);
+
+                // Also load storage info when loading stats
+                await this.loadStorageInfo();
             } else {
                 throw new Error(response.error);
             }
@@ -823,8 +852,22 @@ class PopupController {
                 cleanupDays: parseInt(document.getElementById('cleanupDays')?.value) || 30,
                 saveImages: document.getElementById('saveImages')?.checked,
                 saveVideos: document.getElementById('saveVideos')?.checked,
-                enableNotifications: document.getElementById('enableNotifications')?.checked
+                enableNotifications: document.getElementById('enableNotifications')?.checked,
+
+                // NEW: Storage management settings
+                enableStorageOptimization: document.getElementById('enableStorageOptimization')?.checked,
+                storageWarningThreshold: parseInt(document.getElementById('storageWarningThreshold')?.value) || 80,
+                enableStorageNotifications: document.getElementById('enableStorageNotifications')?.checked
             };
+
+            // Validate settings
+            if (newSettings.maxPosts < 100 || newSettings.maxPosts > 5000) {
+                throw new Error('Maximum posts must be between 100 and 5000');
+            }
+
+            if (newSettings.cleanupDays < 7 || newSettings.cleanupDays > 365) {
+                throw new Error('Cleanup days must be between 7 and 365');
+            }
 
             const response = await chrome.runtime.sendMessage({
                 action: 'updateSettings',
@@ -834,12 +877,15 @@ class PopupController {
             if (response.success) {
                 this.settings = newSettings;
                 this.showNotification('Settings saved successfully');
+
+                // Refresh storage info to reflect new settings
+                await this.loadStorageInfo();
             } else {
                 throw new Error(response.error);
             }
         } catch (error) {
             console.error('Error saving settings:', error);
-            this.showNotification('Error saving settings', 'error');
+            this.showNotification(error.message || 'Error saving settings', 'error');
         }
     }
 
@@ -1183,9 +1229,680 @@ class PopupController {
             }
         }
     }
+
+    /**
+     * Emergency optimize storage
+     */
+    async emergencyOptimize() {
+        if (!confirm('⚠️ This will aggressively optimize all saved posts to reduce storage usage.\n\nSome content may be truncated. Continue?')) {
+            return;
+        }
+
+        const button = document.getElementById('emergencyOptimize');
+        if (!button) return;
+
+        try {
+            button.classList.add('loading');
+            button.disabled = true;
+
+            // First, optimize storage
+            const optimizeResponse = await chrome.runtime.sendMessage({ action: 'optimizeStorage' });
+
+            if (optimizeResponse.success) {
+                // Then check quota and perform additional cleanup if needed
+                const quotaResponse = await chrome.runtime.sendMessage({ action: 'checkStorageQuota' });
+
+                if (quotaResponse.success && quotaResponse.data.status === 'critical') {
+                    // Force additional cleanup
+                    await chrome.runtime.sendMessage({ action: 'forceStorageCleanup' });
+                }
+
+                this.showNotification('Emergency optimization completed successfully');
+
+                // Refresh all data
+                await this.loadStorageInfo();
+                await this.refreshPosts();
+                await this.loadStats();
+            } else {
+                throw new Error(optimizeResponse.error);
+            }
+        } catch (error) {
+            console.error('Error in emergency optimize:', error);
+            this.showNotification('Error performing emergency optimization', 'error');
+        } finally {
+            button.classList.remove('loading');
+            button.disabled = false;
+        }
+    }
+
+    /**
+     * Emergency cleanup
+     */
+    async emergencyCleanup() {
+        if (!confirm('⚠️ This will remove a significant number of old posts to free up storage space.\n\nThis action cannot be undone. Continue?')) {
+            return;
+        }
+
+        if (!confirm('Last warning: This will permanently delete old posts. Are you sure?')) {
+            return;
+        }
+
+        const button = document.getElementById('emergencyCleanup');
+        if (!button) return;
+
+        try {
+            button.classList.add('loading');
+            button.disabled = true;
+
+            // Perform aggressive cleanup
+            const response = await chrome.runtime.sendMessage({ action: 'forceStorageCleanup' });
+
+            if (response.success) {
+                this.showNotification('Emergency cleanup completed successfully');
+
+                // Refresh all data
+                await this.loadStorageInfo();
+                await this.refreshPosts();
+                await this.loadStats();
+            } else {
+                throw new Error(response.error);
+            }
+        } catch (error) {
+            console.error('Error in emergency cleanup:', error);
+            this.showNotification('Error performing emergency cleanup', 'error');
+        } finally {
+            button.classList.remove('loading');
+            button.disabled = false;
+        }
+    }
+
+    /**
+     * Export and clear all data
+     */
+    async exportAndClear() {
+        if (!confirm('⚠️ This will export all your data and then clear all saved posts.\n\nThis is irreversible. Continue?')) {
+            return;
+        }
+
+        if (!confirm('Final confirmation: Export data and delete ALL saved posts?')) {
+            return;
+        }
+
+        const button = document.getElementById('exportAndClear');
+        if (!button) return;
+
+        try {
+            button.classList.add('loading');
+            button.disabled = true;
+
+            // First export the data
+            const exportResponse = await chrome.runtime.sendMessage({ action: 'exportPosts' });
+
+            if (exportResponse.success) {
+                // Download the export
+                this.downloadJSON(
+                    exportResponse.data,
+                    `linkedin-posts-full-backup-${new Date().toISOString().split('T')[0]}.json`
+                );
+
+                // Wait a moment for download to start
+                await new Promise(resolve => setTimeout(resolve, 1000));
+
+                // Then clear all data
+                const clearResponse = await chrome.runtime.sendMessage({ action: 'clearAllData' });
+
+                if (clearResponse.success) {
+                    this.showNotification('Data exported and all posts cleared successfully');
+
+                    // Refresh all data
+                    await this.loadStorageInfo();
+                    await this.refreshPosts();
+                    await this.loadStats();
+                } else {
+                    this.showNotification('Export successful, but failed to clear data', 'warning');
+                }
+            } else {
+                throw new Error(exportResponse.error);
+            }
+        } catch (error) {
+            console.error('Error in export and clear:', error);
+            this.showNotification('Error exporting and clearing data', 'error');
+        } finally {
+            button.classList.remove('loading');
+            button.disabled = false;
+        }
+    }
+
+    /**
+     * Reset storage settings to defaults
+     */
+    async resetStorageSettings() {
+        if (!confirm('Reset all storage settings to default values?')) {
+            return;
+        }
+
+        try {
+            const defaultStorageSettings = {
+                maxPosts: 1000,
+                autoCleanup: true,
+                cleanupDays: 30,
+                enableStorageOptimization: true,
+                storageWarningThreshold: 80,
+                enableStorageNotifications: true
+            };
+
+            // Merge with existing settings
+            const currentSettings = await this.getSettingsForHealth();
+            const newSettings = { ...currentSettings, ...defaultStorageSettings };
+
+            const response = await chrome.runtime.sendMessage({
+                action: 'updateSettings',
+                settings: newSettings
+            });
+
+            if (response.success) {
+                this.settings = newSettings;
+                this.populateSettingsForm();
+                this.showNotification('Storage settings reset to defaults');
+            } else {
+                throw new Error(response.error);
+            }
+        } catch (error) {
+            console.error('Error resetting storage settings:', error);
+            this.showNotification('Error resetting storage settings', 'error');
+        }
+    }
+
+    /**
+     * Add storage validation warnings
+     */
+    addStorageValidationWarnings() {
+        // Add validation for max posts input
+        const maxPostsInput = document.getElementById('maxPosts');
+        if (maxPostsInput) {
+            maxPostsInput.addEventListener('input', (e) => {
+                const value = parseInt(e.target.value);
+                const warningElement = this.getOrCreateWarning(e.target, 'maxPostsWarning');
+
+                if (value < 100) {
+                    warningElement.textContent = '⚠️ Very low limit - you may lose recent posts';
+                    warningElement.style.color = '#f44336';
+                } else if (value > 3000) {
+                    warningElement.textContent = '⚠️ High limit - may cause storage issues on mobile';
+                    warningElement.style.color = '#ff9800';
+                } else {
+                    warningElement.textContent = '';
+                }
+            });
+        }
+
+        // Add validation for cleanup days
+        const cleanupDaysInput = document.getElementById('cleanupDays');
+        if (cleanupDaysInput) {
+            cleanupDaysInput.addEventListener('input', (e) => {
+                const value = parseInt(e.target.value);
+                const warningElement = this.getOrCreateWarning(e.target, 'cleanupDaysWarning');
+
+                if (value < 14) {
+                    warningElement.textContent = '⚠️ Very short retention - posts will be deleted quickly';
+                    warningElement.style.color = '#f44336';
+                } else if (value > 90) {
+                    warningElement.textContent = '⚠️ Long retention - may cause storage issues';
+                    warningElement.style.color = '#ff9800';
+                } else {
+                    warningElement.textContent = '';
+                }
+            });
+        }
+    }
+
+    /**
+     * Get or create validation warning element
+     */
+    getOrCreateWarning(inputElement, warningId) {
+        let warningElement = document.getElementById(warningId);
+
+        if (!warningElement) {
+            warningElement = document.createElement('div');
+            warningElement.id = warningId;
+            warningElement.style.cssText = `
+            font-size: 11px;
+            margin-top: 4px;
+            font-weight: 500;
+        `;
+            inputElement.parentNode.appendChild(warningElement);
+        }
+
+        return warningElement;
+    }
+
+    /**
+    * Initialize storage settings monitoring
+    */
+    initializeStorageSettings() {
+        // Add validation warnings
+        this.addStorageValidationWarnings();
+
+        // Monitor storage warning threshold changes
+        const thresholdSelect = document.getElementById('storageWarningThreshold');
+        if (thresholdSelect) {
+            thresholdSelect.addEventListener('change', async () => {
+                // Update the quota manager thresholds if needed
+                await this.loadStorageInfo();
+            });
+        }
+    }
+
+    /**
+    * Load and display storage information
+    */
+    async loadStorageInfo() {
+        try {
+            const response = await chrome.runtime.sendMessage({ action: 'getStorageInfo' });
+
+            if (response.success) {
+                this.displayStorageInfo(response.data);
+                await this.updateStorageHealth(response.data);
+            } else {
+                console.error('Error loading storage info:', response.error);
+                this.showStorageError();
+            }
+        } catch (error) {
+            console.error('Error loading storage info:', error);
+            this.showStorageError();
+        }
+    }
+
+    /**
+     * Display storage information in the UI
+     */
+    displayStorageInfo(storageInfo) {
+        // Update usage progress bar
+        const progressBar = document.getElementById('storageUsageProgress');
+        const usageText = document.getElementById('storageUsageText');
+
+        if (progressBar && usageText) {
+            const percentUsed = Math.round(storageInfo.percentUsed * 100);
+            progressBar.style.width = `${percentUsed}%`;
+            usageText.textContent = `${storageInfo.formatted.totalSize} of ${storageInfo.formatted.estimatedQuota} used (${percentUsed}%)`;
+
+            // Update progress bar color based on usage
+            if (percentUsed >= 95) {
+                progressBar.style.background = '#f44336';
+            } else if (percentUsed >= 80) {
+                progressBar.style.background = '#ff9800';
+            } else {
+                progressBar.style.background = '#4caf50';
+            }
+        }
+
+        // Update detail cards
+        const elements = {
+            'totalStorageUsage': storageInfo.formatted.totalSize,
+            'postsStorageUsage': storageInfo.formatted.postsSize,
+            'storageUsagePercent': storageInfo.formatted.percentUsed,
+            'postCountValue': storageInfo.postCount.toLocaleString()
+        };
+
+        Object.entries(elements).forEach(([id, value]) => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = value;
+        });
+
+        // Show storage alert if needed
+        this.showStorageAlert(storageInfo);
+    }
+
+    /**
+     * Show storage alert based on usage
+     */
+    showStorageAlert(storageInfo) {
+        const alert = document.getElementById('storageAlert');
+        const title = document.getElementById('storageAlertTitle');
+        const message = document.getElementById('storageAlertMessage');
+
+        if (!alert || !title || !message) return;
+
+        const percentUsed = Math.round(storageInfo.percentUsed * 100);
+
+        if (percentUsed >= 95) {
+            alert.classList.remove('hidden');
+            alert.classList.add('critical');
+            title.textContent = '🚨 Critical Storage Usage';
+            message.textContent = `Storage is ${percentUsed}% full. Old posts are being automatically removed. Consider exporting your data.`;
+        } else if (percentUsed >= 80) {
+            alert.classList.remove('hidden', 'critical');
+            title.textContent = '⚠️ High Storage Usage';
+            message.textContent = `Storage is ${percentUsed}% full. Consider cleaning up old posts or optimizing storage.`;
+        } else {
+            alert.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Update storage health indicators
+     */
+    async updateStorageHealth(storageInfo) {
+        try {
+            // Check quota status
+            const quotaIndicator = document.getElementById('quotaHealthIndicator');
+            const quotaValue = document.getElementById('quotaHealthValue');
+
+            if (quotaIndicator && quotaValue) {
+                const percentUsed = Math.round(storageInfo.percentUsed * 100);
+                quotaIndicator.className = 'health-indicator';
+
+                if (percentUsed < 80) {
+                    quotaIndicator.classList.add('healthy');
+                    quotaValue.textContent = 'Healthy';
+                    quotaIndicator.querySelector('.health-icon').textContent = '🟢';
+                } else if (percentUsed < 95) {
+                    quotaIndicator.classList.add('warning');
+                    quotaValue.textContent = 'Warning';
+                    quotaIndicator.querySelector('.health-icon').textContent = '🟡';
+                } else {
+                    quotaIndicator.classList.add('critical');
+                    quotaValue.textContent = 'Critical';
+                    quotaIndicator.querySelector('.health-icon').textContent = '🔴';
+                }
+            }
+
+            // Check cleanup status
+            const cleanupIndicator = document.getElementById('cleanupHealthIndicator');
+            const cleanupValue = document.getElementById('cleanupHealthValue');
+
+            if (cleanupIndicator && cleanupValue) {
+                const settings = await this.getSettingsForHealth();
+                cleanupIndicator.className = 'health-indicator';
+
+                if (settings.autoCleanup) {
+                    cleanupIndicator.classList.add('healthy');
+                    cleanupValue.textContent = `Enabled (${settings.cleanupDays || 30} days)`;
+                    cleanupIndicator.querySelector('.health-icon').textContent = '🟢';
+                } else {
+                    cleanupIndicator.classList.add('warning');
+                    cleanupValue.textContent = 'Disabled';
+                    cleanupIndicator.querySelector('.health-icon').textContent = '🟡';
+                }
+            }
+
+            // Check optimization status
+            const optimizationIndicator = document.getElementById('optimizationHealthIndicator');
+            const optimizationValue = document.getElementById('optimizationHealthValue');
+
+            if (optimizationIndicator && optimizationValue) {
+                optimizationIndicator.className = 'health-indicator healthy';
+                optimizationValue.textContent = 'Active';
+                optimizationIndicator.querySelector('.health-icon').textContent = '🟢';
+            }
+
+        } catch (error) {
+            console.error('Error updating storage health:', error);
+        }
+    }
+
+    /**
+     * Get settings for health check
+     */
+    async getSettingsForHealth() {
+        try {
+            const response = await chrome.runtime.sendMessage({ action: 'getSettings' });
+            return response.success ? response.data : {};
+        } catch (error) {
+            return {};
+        }
+    }
+
+    /**
+     * Show storage error state
+     */
+    showStorageError() {
+        const usageText = document.getElementById('storageUsageText');
+        if (usageText) {
+            usageText.textContent = 'Error loading storage information';
+        }
+
+        ['totalStorageUsage', 'postsStorageUsage', 'storageUsagePercent', 'postCountValue'].forEach(id => {
+            const element = document.getElementById(id);
+            if (element) element.textContent = 'Error';
+        });
+    }
+
+    /**
+     * Optimize storage
+     */
+    async optimizeStorage() {
+        const button = document.getElementById('optimizeStorage');
+        if (!button) return;
+
+        try {
+            button.classList.add('loading');
+            button.disabled = true;
+
+            const response = await chrome.runtime.sendMessage({ action: 'optimizeStorage' });
+
+            if (response.success) {
+                const optimizedCount = response.data.optimizedCount;
+                if (optimizedCount > 0) {
+                    this.showNotification(`Optimized ${optimizedCount} posts successfully`);
+                } else {
+                    this.showNotification('Storage already optimized');
+                }
+
+                // Refresh storage info
+                await this.loadStorageInfo();
+            } else {
+                throw new Error(response.error);
+            }
+        } catch (error) {
+            console.error('Error optimizing storage:', error);
+            this.showNotification('Error optimizing storage', 'error');
+        } finally {
+            button.classList.remove('loading');
+            button.disabled = false;
+        }
+    }
+
+    /**
+     * Check storage quota
+     */
+    async checkStorageQuota() {
+        const button = document.getElementById('checkStorageQuota');
+        if (!button) return;
+
+        try {
+            button.classList.add('loading');
+            button.disabled = true;
+
+            const response = await chrome.runtime.sendMessage({ action: 'checkStorageQuota' });
+
+            if (response.success) {
+                const status = response.data.status;
+                let message = '';
+
+                switch (status) {
+                    case 'ok':
+                        message = 'Storage quota is healthy';
+                        break;
+                    case 'warning':
+                        message = 'Storage quota warning - consider cleanup';
+                        break;
+                    case 'critical':
+                        message = 'Storage quota critical - automatic cleanup performed';
+                        break;
+                    default:
+                        message = 'Storage quota checked';
+                }
+
+                this.showNotification(message, status === 'ok' ? 'success' : 'warning');
+
+                // Refresh storage info
+                await this.loadStorageInfo();
+            } else {
+                throw new Error(response.error);
+            }
+        } catch (error) {
+            console.error('Error checking storage quota:', error);
+            this.showNotification('Error checking storage quota', 'error');
+        } finally {
+            button.classList.remove('loading');
+            button.disabled = false;
+        }
+    }
+
+    /**
+     * Force cleanup old posts
+     */
+    async forceCleanup() {
+        if (!confirm('This will remove old posts according to your cleanup settings. Continue?')) {
+            return;
+        }
+
+        const button = document.getElementById('forceCleanup');
+        if (!button) return;
+
+        try {
+            button.classList.add('loading');
+            button.disabled = true;
+
+            const response = await chrome.runtime.sendMessage({ action: 'cleanup' });
+
+            if (response.success) {
+                this.showNotification('Old posts cleaned up successfully');
+
+                // Refresh data
+                await this.loadStorageInfo();
+                await this.refreshPosts();
+                await this.loadStats();
+            } else {
+                throw new Error(response.error);
+            }
+        } catch (error) {
+            console.error('Error performing cleanup:', error);
+            this.showNotification('Error cleaning up posts', 'error');
+        } finally {
+            button.classList.remove('loading');
+            button.disabled = false;
+        }
+    }
+
+    /**
+     * Export data before cleanup
+     */
+    async exportBeforeCleanup() {
+        const button = document.getElementById('exportBeforeCleanup');
+        if (!button) return;
+
+        try {
+            button.classList.add('loading');
+            button.disabled = true;
+
+            // First export the data
+            const exportResponse = await chrome.runtime.sendMessage({ action: 'exportPosts' });
+
+            if (exportResponse.success) {
+                // Download the export
+                this.downloadJSON(exportResponse.data, `linkedin-posts-backup-${new Date().toISOString().split('T')[0]}.json`);
+
+                // Ask if user wants to proceed with cleanup
+                if (confirm('Data exported successfully! Do you want to proceed with cleanup?')) {
+                    const cleanupResponse = await chrome.runtime.sendMessage({ action: 'cleanup' });
+
+                    if (cleanupResponse.success) {
+                        this.showNotification('Data exported and old posts cleaned up');
+
+                        // Refresh data
+                        await this.loadStorageInfo();
+                        await this.refreshPosts();
+                        await this.loadStats();
+                    } else {
+                        this.showNotification('Export successful, but cleanup failed', 'warning');
+                    }
+                } else {
+                    this.showNotification('Data exported successfully');
+                }
+            } else {
+                throw new Error(exportResponse.error);
+            }
+        } catch (error) {
+            console.error('Error in export before cleanup:', error);
+            this.showNotification('Error exporting data', 'error');
+        } finally {
+            button.classList.remove('loading');
+            button.disabled = false;
+        }
+    }
+
+    /**
+     * Dismiss storage alert
+     */
+    dismissStorageAlert() {
+        const alert = document.getElementById('storageAlert');
+        if (alert) {
+            alert.classList.add('hidden');
+        }
+    }
+
+    /**
+     * Update the loadStats method to include storage info
+     */
+    async loadStats() {
+        try {
+            this.showLoading('Loading statistics...');
+
+            const response = await chrome.runtime.sendMessage({ action: 'getStats' });
+
+            if (response.success) {
+                this.displayStats(response.data);
+
+                // Also load storage info when loading stats
+                await this.loadStorageInfo();
+            } else {
+                throw new Error(response.error);
+            }
+        } catch (error) {
+            console.error('Error loading stats:', error);
+            this.showNotification('Error loading statistics', 'error');
+        } finally {
+            this.hideLoading();
+        }
+    }
+
+    /**
+     * Add storage monitoring
+     */
+    startStorageMonitoring() {
+        // Check storage every 2 minutes when popup is open
+        this.storageMonitorInterval = setInterval(async () => {
+            try {
+                await this.loadStorageInfo();
+            } catch (error) {
+                console.error('Error in storage monitoring:', error);
+            }
+        }, 2 * 60 * 1000);
+    }
+
+    /**
+     * Stop storage monitoring
+     */
+    stopStorageMonitoring() {
+        if (this.storageMonitorInterval) {
+            clearInterval(this.storageMonitorInterval);
+            this.storageMonitorInterval = null;
+        }
+    }
 }
 
 // Initialize popup when DOM is loaded
 document.addEventListener('DOMContentLoaded', () => {
-    new PopupController();
+    this.popupController = new PopupController();
+});
+
+/**
+ * Add cleanup on window unload
+ */
+window.addEventListener('beforeunload', () => {
+    if (this.popupController) {
+        this.popupController.stopStorageMonitoring();
+    }
 });

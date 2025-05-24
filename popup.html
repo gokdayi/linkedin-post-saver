@@ -162,19 +162,108 @@
                 </div>
 
                 <div class="storage-info">
-                    <h3>Storage Information</h3>
-                    <div class="storage-details">
-                        <div class="storage-item">
-                            <span class="storage-label">Storage Used:</span>
-                            <span class="storage-value" id="storageUsed">0 KB</span>
+                    <h3>💾 Storage Management</h3>
+
+                    <!-- Storage Usage Visualization -->
+                    <div class="storage-usage-container">
+                        <div class="storage-usage-bar">
+                            <div id="storageUsageProgress" class="storage-usage-progress"></div>
                         </div>
-                        <div class="storage-item">
-                            <span class="storage-label">Oldest Post:</span>
-                            <span class="storage-value" id="oldestPost">-</span>
+                        <div class="storage-usage-text">
+                            <span id="storageUsageText">Loading...</span>
                         </div>
-                        <div class="storage-item">
-                            <span class="storage-label">Newest Post:</span>
-                            <span class="storage-value" id="newestPost">-</span>
+                    </div>
+
+                    <!-- Storage Details Grid -->
+                    <div class="storage-details-grid">
+                        <div class="storage-detail-card">
+                            <div class="storage-detail-icon">📊</div>
+                            <div class="storage-detail-content">
+                                <div class="storage-detail-label">Total Usage</div>
+                                <div class="storage-detail-value" id="totalStorageUsage">-</div>
+                            </div>
+                        </div>
+
+                        <div class="storage-detail-card">
+                            <div class="storage-detail-icon">📝</div>
+                            <div class="storage-detail-content">
+                                <div class="storage-detail-label">Posts Data</div>
+                                <div class="storage-detail-value" id="postsStorageUsage">-</div>
+                            </div>
+                        </div>
+
+                        <div class="storage-detail-card">
+                            <div class="storage-detail-icon">📈</div>
+                            <div class="storage-detail-content">
+                                <div class="storage-detail-label">Usage Percent</div>
+                                <div class="storage-detail-value" id="storageUsagePercent">-</div>
+                            </div>
+                        </div>
+
+                        <div class="storage-detail-card">
+                            <div class="storage-detail-icon">🔢</div>
+                            <div class="storage-detail-content">
+                                <div class="storage-detail-label">Post Count</div>
+                                <div class="storage-detail-value" id="postCountValue">-</div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Storage Status Alert -->
+                    <div id="storageAlert" class="storage-alert hidden">
+                        <div class="storage-alert-icon">⚠️</div>
+                        <div class="storage-alert-content">
+                            <div class="storage-alert-title" id="storageAlertTitle">Storage Warning</div>
+                            <div class="storage-alert-message" id="storageAlertMessage">Your storage usage is getting
+                                high.</div>
+                        </div>
+                        <button id="dismissStorageAlert" class="storage-alert-dismiss">×</button>
+                    </div>
+
+                    <!-- Storage Actions -->
+                    <div class="storage-actions">
+                        <div class="storage-actions-row">
+                            <button id="optimizeStorage" class="btn btn-secondary">
+                                <span class="btn-icon">🔧</span>
+                                Optimize Storage
+                            </button>
+                            <button id="checkStorageQuota" class="btn btn-secondary">
+                                <span class="btn-icon">🔍</span>
+                                Check Quota
+                            </button>
+                        </div>
+
+                        <div class="storage-actions-row">
+                            <button id="forceCleanup" class="btn btn-warning">
+                                <span class="btn-icon">🧹</span>
+                                Force Cleanup
+                            </button>
+                            <button id="exportBeforeCleanup" class="btn btn-primary">
+                                <span class="btn-icon">💾</span>
+                                Export & Clean
+                            </button>
+                        </div>
+                    </div>
+
+                    <!-- Storage Health Indicator -->
+                    <div class="storage-health">
+                        <h4>Storage Health Status</h4>
+                        <div class="health-indicators">
+                            <div class="health-indicator" id="quotaHealthIndicator">
+                                <span class="health-icon">⚪</span>
+                                <span class="health-label">Quota Status</span>
+                                <span class="health-value" id="quotaHealthValue">Checking...</span>
+                            </div>
+                            <div class="health-indicator" id="cleanupHealthIndicator">
+                                <span class="health-icon">⚪</span>
+                                <span class="health-label">Auto Cleanup</span>
+                                <span class="health-value" id="cleanupHealthValue">Checking...</span>
+                            </div>
+                            <div class="health-indicator" id="optimizationHealthIndicator">
+                                <span class="health-icon">⚪</span>
+                                <span class="health-label">Optimization</span>
+                                <span class="health-value" id="optimizationHealthValue">Checking...</span>
+                            </div>
                         </div>
                     </div>
                 </div>
@@ -205,15 +294,17 @@
                 </div>
 
                 <div class="settings-sections">
+
+                    <!-- Storage Settings -->
                     <div class="settings-section">
-                        <h3>Storage Settings</h3>
+                        <h3>💾 Storage Management</h3>
 
                         <div class="setting-item">
                             <label for="maxPosts" class="setting-label">Maximum Posts to Store:</label>
-                            <input type="number" id="maxPosts" min="100" max="10000" step="100" value="1000"
+                            <input type="number" id="maxPosts" min="100" max="5000" step="100" value="1000"
                                 class="setting-input">
-                            <span class="setting-description">Older posts will be automatically removed when this limit
-                                is reached</span>
+                            <span class="setting-description">Posts beyond this limit will be automatically removed
+                                (oldest first)</span>
                         </div>
 
                         <div class="setting-item">
@@ -225,13 +316,92 @@
                         </div>
 
                         <div class="setting-item">
-                            <label for="cleanupDays" class="setting-label">Cleanup After (days):</label>
+                            <label for="cleanupDays" class="setting-label">Auto Cleanup After (days):</label>
                             <input type="number" id="cleanupDays" min="7" max="365" value="30" class="setting-input">
+                            <span class="setting-description">Posts older than this will be automatically removed</span>
+                        </div>
+
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <input type="checkbox" id="enableStorageOptimization" checked> Enable Storage
+                                Optimization
+                            </label>
+                            <span class="setting-description">Automatically optimize post data to save space</span>
+                        </div>
+
+                        <div class="setting-item">
+                            <label for="storageWarningThreshold" class="setting-label">Storage Warning Threshold
+                                (%):</label>
+                            <select id="storageWarningThreshold" class="setting-input">
+                                <option value="70">70%</option>
+                                <option value="80" selected>80%</option>
+                                <option value="90">90%</option>
+                            </select>
+                            <span class="setting-description">Show warning when storage usage exceeds this
+                                percentage</span>
+                        </div>
+
+                        <div class="setting-item">
+                            <label class="setting-label">
+                                <input type="checkbox" id="enableStorageNotifications" checked> Storage Notifications
+                            </label>
+                            <span class="setting-description">Show notifications for storage warnings and cleanup
+                                events</span>
+                        </div>
+
+                        <!-- Storage Limits Info -->
+                        <div class="storage-limits-info">
+                            <h4>📋 Storage Information</h4>
+                            <div class="limits-grid">
+                                <div class="limit-item">
+                                    <span class="limit-label">Browser Limit:</span>
+                                    <span class="limit-value">~10MB per extension</span>
+                                </div>
+                                <div class="limit-item">
+                                    <span class="limit-label">Avg Post Size:</span>
+                                    <span class="limit-value">~2-5KB per post</span>
+                                </div>
+                                <div class="limit-item">
+                                    <span class="limit-label">Est. Capacity:</span>
+                                    <span class="limit-value">~2,000-5,000 posts</span>
+                                </div>
+                                <div class="limit-item">
+                                    <span class="limit-label">Mobile Impact:</span>
+                                    <span class="limit-value">Lower limits on mobile</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        <!-- Emergency Storage Actions -->
+                        <div class="emergency-storage-actions">
+                            <h4>🚨 Emergency Storage Actions</h4>
+                            <div class="emergency-actions-grid">
+                                <button id="emergencyOptimize" class="btn btn-warning">
+                                    <span class="btn-icon">⚙️</span>
+                                    Emergency Optimize
+                                </button>
+                                <button id="emergencyCleanup" class="btn btn-warning">
+                                    <span class="btn-icon">🧹</span>
+                                    Emergency Cleanup
+                                </button>
+                                <button id="exportAndClear" class="btn btn-danger">
+                                    <span class="btn-icon">💾</span>
+                                    Export & Clear All
+                                </button>
+                                <button id="resetStorageSettings" class="btn btn-secondary">
+                                    <span class="btn-icon">🔄</span>
+                                    Reset Settings
+                                </button>
+                            </div>
+                            <p class="emergency-note">
+                                Use these actions only when storage is critically full or experiencing issues.
+                            </p>
                         </div>
                     </div>
 
+                    <!-- Content Settings -->
                     <div class="settings-section">
-                        <h3>Content Settings</h3>
+                        <h3>📝 Content Settings</h3>
 
                         <div class="setting-item">
                             <label class="setting-label">
@@ -249,8 +419,9 @@
                         </div>
                     </div>
 
+                    <!-- Notifications -->
                     <div class="settings-section">
-                        <h3>Notifications</h3>
+                        <h3>🔔 Notifications</h3>
 
                         <div class="setting-item">
                             <label class="setting-label">
@@ -260,8 +431,9 @@
                         </div>
                     </div>
 
+                    <!-- LinkedIn Compliance -->
                     <div class="settings-section">
-                        <h3>LinkedIn Compliance</h3>
+                        <h3>⚖️ LinkedIn Compliance</h3>
 
                         <div class="compliance-status-simple">
                             <h4>✅ Compliance Status: Active</h4>
@@ -309,8 +481,31 @@
                         </div>
                     </div>
 
+                    <!-- Privacy & Consent -->
                     <div class="settings-section">
-                        <h3>Data Management</h3>
+                        <h3>🔒 Privacy & Consent</h3>
+
+                        <div class="consent-status-card">
+                            <h4>User Consent Status</h4>
+                            <div class="consent-status-info">
+                                <span id="consentStatusText">Loading...</span>
+                            </div>
+                            <div class="consent-actions">
+                                <button id="reviewConsent" class="btn btn-secondary">
+                                    <span class="btn-icon">📋</span>
+                                    Review Consent
+                                </button>
+                                <button id="revokeConsent" class="btn btn-warning">
+                                    <span class="btn-icon">🚫</span>
+                                    Revoke Consent
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Data Management -->
+                    <div class="settings-section">
+                        <h3>📊 Data Management</h3>
 
                         <div class="setting-item">
                             <button id="importPosts" class="btn btn-secondary">
@@ -322,13 +517,52 @@
                         </div>
 
                         <div class="setting-item">
+                            <button id="exportAllPosts" class="btn btn-primary">
+                                <span class="btn-icon">📤</span>
+                                Export All Posts
+                            </button>
+                            <span class="setting-description">Download all your saved posts as JSON file</span>
+                        </div>
+
+                        <div class="setting-item">
                             <button id="clearAllData" class="btn btn-danger">
                                 <span class="btn-icon">🗑️</span>
                                 Clear All Data
                             </button>
-                            <span class="setting-description">⚠️ This will permanently delete all saved posts</span>
+                            <span class="setting-description">⚠️ This will permanently delete all saved posts and
+                                settings</span>
                         </div>
                     </div>
+
+                    <!-- Advanced Settings -->
+                    <div class="settings-section">
+                        <h3>⚙️ Advanced Settings</h3>
+
+                        <div class="setting-item">
+                            <button id="runComplianceCheck" class="btn btn-secondary">
+                                <span class="btn-icon">🔍</span>
+                                Run Compliance Check
+                            </button>
+                            <span class="setting-description">Verify that all compliance measures are active</span>
+                        </div>
+
+                        <div class="setting-item">
+                            <button id="reviewLinkedInTerms" class="btn btn-secondary">
+                                <span class="btn-icon">📜</span>
+                                Review LinkedIn Terms
+                            </button>
+                            <span class="setting-description">Opens LinkedIn's User Agreement in a new tab</span>
+                        </div>
+
+                        <div class="setting-item">
+                            <button id="reportCompliance" class="btn btn-secondary">
+                                <span class="btn-icon">📧</span>
+                                Report Compliance Issue
+                            </button>
+                            <span class="setting-description">Report any compliance concerns or violations</span>
+                        </div>
+                    </div>
+
                 </div>
             </div>
 

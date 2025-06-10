@@ -972,12 +972,41 @@ class LinkedInPostSaver {
     }
 
     isPostElement(element) {
+        // Skip processing if this is a "Recommended for you" or other promotional content
+        if (element.textContent && 
+            (element.textContent.includes('Recommended for you') ||
+             element.textContent.includes('Sponsored') ||
+             element.textContent.includes('Promoted'))) {
+            return false;
+        }
+
+        // Check for standard post attributes
         const postAttributes = [
             'data-chameleon-result-urn',
             'data-urn'
         ];
 
-        return postAttributes.some(attr => element.hasAttribute && element.hasAttribute(attr));
+        // Check if this element has typical post structure (whitelist approach)
+        const hasPostAttributes = postAttributes.some(attr => element.hasAttribute && element.hasAttribute(attr));
+        
+        // Look for additional post signals
+        const hasPostStructure = element.querySelector && (
+            // Post has like/comment buttons
+            element.querySelector('[aria-label="Like"]') ||
+            element.querySelector('[aria-label="Comment"]') ||
+            element.querySelector('[data-control-name="like"]') ||
+            element.querySelector('[data-control-name="comment"]') ||
+            // Post has an author section
+            (element.querySelector('[data-test-id="feed-shared-actor"]') ||
+             element.querySelector('.feed-shared-actor')) ||
+            // Post has typical LinkedIn post classes
+            (element.classList && (
+                element.classList.contains('feed-shared-update-v2') ||
+                element.classList.contains('feed-shared-article')
+            ))
+        );
+        
+        return hasPostAttributes || hasPostStructure;
     }
 
     isElementVisible(element) {
@@ -996,37 +1025,69 @@ class LinkedInPostSaver {
     extractPostId(postElement) {
         // Method 1: Direct URN from element attributes
         let postId = postElement.getAttribute('data-urn') ||
-            postElement.getAttribute('data-id');
+            postElement.getAttribute('data-id') ||
+            postElement.getAttribute('data-activity-urn') ||
+            postElement.getAttribute('data-activity-id');
 
         if (postId && postId.includes('urn:li:activity:')) {
             return postId;
         }
 
-        // Method 2: Look for URN in child elements  
+        // Method 2: Look for URN in child elements with expanded selectors
         const urnSelectors = [
             '[data-urn*="urn:li:activity:"]',
-            '[data-id*="urn:li:activity:"]'
+            '[data-id*="urn:li:activity:"]',
+            '[data-activity-urn*="urn:li:activity:"]',
+            '[data-activity-id*="urn:li:activity:"]',
+            '[data-id*="articleActivity"]',
+            '[data-id*="urn:li:share:"]',
+            '[data-entity-urn*="activity:"]',
+            '[id*="ember"][id*="feed-content"]',
+            '[data-test-id*="feed-shared-update"]'
         ];
 
         for (const selector of urnSelectors) {
-            const urnElement = postElement.querySelector(selector);
-            if (urnElement) {
+            const urnElements = postElement.querySelectorAll(selector);
+            for (const urnElement of urnElements) {
                 postId = urnElement.getAttribute('data-urn') ||
-                    urnElement.getAttribute('data-id');
-                if (postId && postId.includes('urn:li:activity:')) {
+                    urnElement.getAttribute('data-id') ||
+                    urnElement.getAttribute('data-activity-urn') ||
+                    urnElement.getAttribute('data-activity-id') ||
+                    urnElement.getAttribute('data-entity-urn');
+                
+                if (postId && (postId.includes('urn:li:activity:') || 
+                              postId.includes('articleActivity') || 
+                              postId.includes('urn:li:share:'))) {
                     return postId;
                 }
             }
         }
 
-        // Method 3: Look in parent elements (in case we're processing a sub-element)
+        // Method 3: Look for permalink URLs in anchor elements
+        const anchorElements = postElement.querySelectorAll('a[href*="/feed/update/"]');
+        for (const anchor of anchorElements) {
+            const href = anchor.getAttribute('href');
+            if (href) {
+                const match = href.match(/\/feed\/update\/([\w\d:]+)/);
+                if (match && match[1]) {
+                    return 'urn:li:activity:' + match[1];
+                }
+            }
+        }
+
+        // Method 4: Look in parent elements (in case we're processing a sub-element)
         let currentElement = postElement.parentElement;
-        for (let i = 0; i < 3; i++) {
+        for (let i = 0; i < 5; i++) { // Increased depth to 5
             if (currentElement && currentElement.getAttribute) {
                 postId = currentElement.getAttribute('data-urn') ||
-                    currentElement.getAttribute('data-id');
+                    currentElement.getAttribute('data-id') ||
+                    currentElement.getAttribute('data-activity-urn') ||
+                    currentElement.getAttribute('data-activity-id') ||
+                    currentElement.getAttribute('data-entity-urn');
 
-                if (postId && postId.includes('urn:li:activity:')) {
+                if (postId && (postId.includes('urn:li:activity:') || 
+                              postId.includes('articleActivity') || 
+                              postId.includes('urn:li:share:'))) {
                     return postId;
                 }
             }
@@ -1034,7 +1095,15 @@ class LinkedInPostSaver {
             if (!currentElement) break;
         }
 
-        // Method 4: Generate hash based on content (fallback)
+        // Method 5: Try to find timestamps which often have unique IDs
+        const timeElements = postElement.querySelectorAll('time, [class*="timestamp"], [class*="time-stamp"], [class*="posted-time"]');
+        for (const timeElement of timeElements) {
+            if (timeElement.id && timeElement.id.includes('ember')) {
+                return 'time_id_' + timeElement.id;
+            }
+        }
+
+        // Method 6: Generate hash based on content (fallback)
         const textContent = postElement.textContent?.trim();
         if (textContent && textContent.length > 50) {
             // Use more content for better uniqueness
@@ -1042,7 +1111,9 @@ class LinkedInPostSaver {
             return 'content_hash_' + this.generateSimpleHash(hashContent);
         }
 
-        console.warn('LinkedIn Post Saver: Could not extract post ID for element');
+        // Some elements may not have post IDs by design (like ads, recommendations)
+        // Log at info level instead of warn to avoid showing errors in the console
+        console.info('LinkedIn Post Saver: Skipping element with no extractable post ID');
         return null;
     }
 

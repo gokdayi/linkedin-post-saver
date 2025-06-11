@@ -174,6 +174,7 @@ class PopupController {
         // Stats tab
         document.getElementById('refreshStats')?.addEventListener('click', () => this.loadStats());
         document.getElementById('cleanupOldPosts')?.addEventListener('click', () => this.cleanupOldPosts());
+        document.getElementById('statsExportAllPosts')?.addEventListener('click', () => this.exportAllPosts());
         document.getElementById('exportAllPosts')?.addEventListener('click', () => this.exportAllPosts());
 
         // Settings tab
@@ -906,7 +907,7 @@ class PopupController {
     }
 
     async exportAllPosts() {
-        await this.exportPosts();
+            await this.exportPosts();
     }
 
     importPosts() {
